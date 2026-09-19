@@ -602,6 +602,19 @@ body.compact .sub { display: none; }
   .modal { max-height: 92vh; }
 }
 
+/* ============ Goals as things ============ */
+.goal-hero { border-radius: 12px; overflow: hidden; background: var(--surface-2); margin-bottom: 16px;
+  display: grid; place-items: center; max-height: 320px; }
+.goal-hero img { width: 100%; max-height: 320px; object-fit: contain; display: block; }
+.goal-thumb { width: 40px; height: 40px; border-radius: 9px; overflow: hidden; flex: none;
+  background: var(--surface-2); display: grid; place-items: center; }
+.goal-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.goal-cover { border-radius: 10px; overflow: hidden; background: var(--surface-2); margin-bottom: 10px;
+  height: 120px; display: grid; place-items: center; }
+.goal-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.progress.sm { height: 5px; }
+.card.goal.click { cursor: pointer; }
+
 /* ============ Motion ============
    Applied on navigation only, never on every re-render. Re-animating cards
    each time a filter changes is the single fastest way to make an interface
@@ -3191,7 +3204,7 @@ VIEWS.dashboard = {
     const pmItems = [...byPm.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6).map(([id, v]) => { const pm = pmOf(id); return { label: pm ? pm.name : 'Not specified', value: v, color: pm ? colorVar(pm.color) : 'var(--muted)', tip: [tipRow('Spent', money(v)), ...(pm && pm.last4 ? [tipRow('Card', '•••• ' + pm.last4)] : [])] }; });
     const pmCard = UI.card('By payment method', hbars(pmItems), { sub: monthLabel(mk), cls: 's4', actions: '<button class="btn sm ghost" data-act="go" data-view="cards">Cards</button>' });
 
-    return `${banner}${stats}<div class="grid">${needsReviewHTML('s12')}${forecastHTML()}${weekReviewHTML()}${monthReviewHTML(mk)}${driftHTML()}${cashflow}${hero}${askCardHTML('s8')}${quickImportHTML(aiReady() ? 's4' : 's12')}${pace}${cats}${bills}${recentCard}${pmCard}</div>`;
+    return `${banner}${stats}<div class="grid">${needsReviewHTML('s12')}${forecastHTML()}${weekReviewHTML()}${goalsCardHTML('s6')}${monthReviewHTML(mk)}${driftHTML()}${cashflow}${hero}${askCardHTML('s8')}${quickImportHTML(aiReady() ? 's4' : 's12')}${pace}${cats}${bills}${recentCard}${pmCard}</div>`;
   },
 };
 function txListItem(x) {
@@ -5363,7 +5376,8 @@ VIEWS.goals = {
       const left = Math.max(0, g.target - g.saved);
       const m = monthsUntil(g.deadline);
       const perMonth = left > 0 && m != null ? Math.ceil(left / Math.max(1, m)) : 0;
-      return `<section class="card goal">
+      return `<section class="card goal click" data-act="goal-open" data-id="${g.id}">
+        ${safeUrl(g.image) ? `<div class="goal-cover"><img src="${esc(safeUrl(g.image))}" alt="" referrerpolicy="no-referrer" onerror="this.closest('.goal-cover').remove()"></div>` : ''}
         <div class="goal-top"><div><div class="row" style="gap:8px"><i class="dot" style="--dot:${colorVar(g.color)}"></i><h3 style="font-size:15px">${esc(g.name)}</h3></div><div class="goal-amt amt" style="margin-top:8px">${esc(money(g.saved, { whole: true }))} <small>of ${esc(money(g.target, { whole: true }))}</small></div></div>
         <button class="btn ghost icon-btn sm" data-act="goal-edit" data-id="${g.id}" aria-label="Edit goal">${icon('edit')}</button></div>
         <div class="progress"><i style="width:${r * 100}%;--bar:${colorVar(g.color)}"></i></div>
@@ -5375,9 +5389,99 @@ VIEWS.goals = {
     return `<div class="toolbar"><span class="spacer"></span>${templates}</div><div class="goal-grid">${cards}</div>`;
   },
 };
+// A goal can be a thing rather than a number — a car, a rig, a watch — and a
+// thing has a listing: a picture, a price, a page to buy it from. Only http(s)
+// is allowed through: these are URLs the person pasted, and a javascript: href
+// in a link they click is the one way that hurts them.
+function safeUrl(u) {
+  const s = String(u || '').trim();
+  if (!s) return '';
+  try {
+    const parsed = new URL(s, location.href);
+    return (parsed.protocol === 'http:' || parsed.protocol === 'https:') ? parsed.href : '';
+  } catch (e) { return ''; }
+}
+function goalHost(u) {
+  const safe = safeUrl(u);
+  if (!safe) return '';
+  try { return new URL(safe).hostname.replace(/^www\./, ''); } catch (e) { return ''; }
+}
+
+// What a goal is worth knowing at a glance: how far along, what is left, and
+// when it lands at the current rate.
+function goalFacts(g) {
+  const ratio = g.target ? clamp(g.saved / g.target, 0, 1) : 0;
+  const left = Math.max(0, g.target - g.saved);
+  const months = monthsUntil(g.deadline);
+  const perMonth = left > 0 && months != null ? Math.ceil(left / Math.max(1, months)) : 0;
+  return { ratio, left, months, perMonth, done: left === 0 && g.target > 0 };
+}
+
+ACT['goal-open'] = (el) => { const g = byId(S.goals, el.dataset.id); if (g) goalDetail(g); };
+
+function goalDetail(g) {
+  const f = goalFacts(g);
+  const img = safeUrl(g.image);
+  const link = safeUrl(g.url);
+  const host = goalHost(g.url);
+  const body = `
+    ${img ? `<div class="goal-hero"><img src="${esc(img)}" alt="" referrerpolicy="no-referrer" onerror="this.closest('.goal-hero').remove()"></div>` : ''}
+    <div class="row wrap" style="gap:22px;margin-bottom:14px">
+      <div><div class="muted small">Price</div><div class="amt stat-lg">${esc(money(g.target))}</div></div>
+      <div><div class="muted small">Saved</div><div class="amt stat-lg">${esc(money(g.saved))}</div></div>
+      <div><div class="muted small">${f.done ? 'Status' : 'To go'}</div><div class="amt stat-lg">${f.done ? 'Reached' : esc(money(f.left))}</div></div>
+    </div>
+    <div class="progress" style="margin-bottom:14px"><i style="width:${f.ratio * 100}%;--bar:${colorVar(g.color)}"></i></div>
+    <div class="list">
+      <div class="list-item"><div class="li-main"><div class="li-title">${pct(f.ratio)} saved</div><div class="li-sub">${f.done ? 'Fully funded.' : (f.perMonth ? `${esc(money(f.perMonth))} a month to hit ${esc(fmtDate(g.deadline, { year: true }))}` : 'No target date set.')}</div></div></div>
+      ${link ? `<div class="list-item"><div class="li-main"><div class="li-title">Listing</div><div class="li-sub">${esc(host)}</div></div><a class="btn sm" href="${esc(link)}" target="_blank" rel="noopener noreferrer">Open</a></div>` : ''}
+      ${g.notes ? `<div class="list-item"><div class="li-main"><div class="li-title">Notes</div><div class="li-sub wrap">${esc(g.notes)}</div></div></div>` : ''}
+    </div>`;
+  openModal({
+    title: g.name,
+    size: 'wide',
+    footer: `<button type="button" class="btn danger" data-close data-act="goal-del" data-id="${g.id}">${icon('trash')}Delete</button>
+      <span class="spacer"></span>
+      <button type="button" class="btn" data-close data-act="goal-edit" data-id="${g.id}">${icon('edit')}Edit</button>
+      <button type="button" class="btn primary" data-close data-act="goal-add-money" data-id="${g.id}">${icon('plus')}Add money</button>`,
+    body,
+  });
+}
+
+// Goals on the Dashboard: the reason the rest of the page matters.
+function goalsCardHTML(cls = 's6') {
+  if (!S.goals.length) return '';
+  const rows = S.goals.slice()
+    .sort((a, b) => {
+      const fa = goalFacts(a), fb = goalFacts(b);
+      return (fa.done ? 1 : 0) - (fb.done ? 1 : 0) || fb.ratio - fa.ratio;
+    })
+    .slice(0, 4)
+    .map((g) => {
+      const f = goalFacts(g);
+      const img = safeUrl(g.image);
+      return `<div class="list-item click" data-act="goal-open" data-id="${g.id}">
+        ${img
+          ? `<span class="goal-thumb"><img src="${esc(img)}" alt="" referrerpolicy="no-referrer" onerror="this.closest('.goal-thumb').remove()"></span>`
+          : `<i class="dot" style="--dot:${colorVar(g.color)}"></i>`}
+        <div class="li-main"><div class="li-title">${esc(g.name)}</div>
+          <div class="progress sm" style="margin:6px 0 4px"><i style="width:${f.ratio * 100}%;--bar:${colorVar(g.color)}"></i></div>
+          <div class="li-sub">${pct(f.ratio)} · ${f.done ? 'reached' : `${esc(money(f.left, { whole: true }))} to go`}</div></div>
+        <div class="li-amt amt">${esc(money(g.target, { whole: true }))}</div>
+      </div>`;
+    }).join('');
+  const total = sum(S.goals, (g) => g.target);
+  const saved = sum(S.goals, (g) => g.saved);
+  return UI.card('Goals', `<div class="list">${rows}</div>`, {
+    sub: `${esc(money(saved, { whole: true }))} of ${esc(money(total, { whole: true }))}`,
+    cls,
+    actions: `<button class="btn sm ghost" data-act="go" data-view="goals">All</button>`,
+  });
+}
+
 function goalModal(g = null, preset = {}) {
   const isNew = !g;
-  const x = g || { name: '', target: 0, saved: 0, deadline: '', color: S.goals.length % 8, ...preset };
+  const x = g || { name: '', target: 0, saved: 0, deadline: '', url: '', image: '', notes: '', color: S.goals.length % 8, ...preset };
   openModal({
     title: isNew ? 'New goal' : 'Edit goal',
     body: `<div class="form-grid">
@@ -5386,6 +5490,9 @@ function goalModal(g = null, preset = {}) {
       ${UI.field('Saved so far', UI.moneyInput('saved', x.saved))}
       ${UI.field('Target date', `<input class="input" type="date" name="deadline" value="${esc(x.deadline || '')}">`, { hint: 'Optional. Used to work out the monthly amount.' })}
       <div class="field"><span class="label">Color</span>${UI.colorPick('color', x.color)}</div>
+      ${UI.field('Link to the listing', `<input class="input" name="url" maxlength="400" value="${esc(x.url || '')}" placeholder="https://…">`, { cls: 'full', hint: 'The page you would buy it from.' })}
+      ${UI.field('Picture', `<input class="input" name="image" maxlength="400" value="${esc(x.image || '')}" placeholder="https://… image address">`, { cls: 'full', hint: 'Right-click the product photo and copy the image address.' })}
+      ${UI.field('Notes', `<input class="input" name="notes" maxlength="300" value="${esc(x.notes || '')}" placeholder="Spec, colour, why this one…">`, { cls: 'full' })}
     </div>${preset.hint ? `<p class="note" style="margin-top:14px">${icon('info')}<span>${preset.hint}</span></p>` : ''}`,
     footerLeft: isNew ? '' : `<button type="button" class="btn danger" data-close data-act="goal-del" data-id="${x.id}">${icon('trash')}Delete</button>`,
     onSubmit(fd) {
@@ -5395,7 +5502,7 @@ function goalModal(g = null, preset = {}) {
       if (!name) { toast('Name your goal', 'err'); return false; }
       if (!(target > 0)) { toast('Enter a target amount', 'err'); return false; }
       if (deadline && !validDate(deadline)) { toast('Pick a valid date', 'err'); return false; }
-      const rec = { id: isNew ? uid() : x.id, name, target, saved: isNaN(saved) ? 0 : Math.max(0, saved), deadline, color: Number(fd.get('color') ?? 0), history: (g && g.history) || [] };
+      const rec = { id: isNew ? uid() : x.id, name, target, saved: isNaN(saved) ? 0 : Math.max(0, saved), deadline, url: safeUrl(fd.get('url')), image: safeUrl(fd.get('image')), notes: String(fd.get('notes') || '').trim().slice(0, 300), color: Number(fd.get('color') ?? 0), history: (g && g.history) || [] };
       commit(() => { if (isNew) S.goals.push(rec); else S.goals[S.goals.findIndex((y) => y.id === x.id)] = rec; }, isNew ? 'Goal created' : 'Saved');
     },
   });
