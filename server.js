@@ -336,6 +336,10 @@ app.get('/api/items', requireAuth, (req, res) => {
     item_id,
     institution_name: v.institutionName,
     connected_at: v.connectedAt || null,
+    // How much history Plaid backfilled for this bank. Fixed when the Item
+    // was created and not changeable afterwards, so the UI can point out which
+    // connections are short and need relinking. Older items predate the field.
+    days_requested: v.daysRequested || null,
   }));
   res.json(list);
 });

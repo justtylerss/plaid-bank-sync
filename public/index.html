@@ -274,6 +274,17 @@ const ASSET_TYPES = new Set(['depository', 'investment']);
 const LIABILITY_TYPES = new Set(['credit', 'loan']);
 
 /* ---------- loaders ---------- */
+// A bank linked before the history picker existed, or linked with a short
+// window, can only be widened by disconnecting and connecting it again —
+// Plaid fixes the window when the Item is created.
+function historyNote(it) {
+  const d = Number(it.days_requested);
+  if (!d) return ' · <b>90 days</b> of history · reconnect for more';
+  if (d >= 700) return ` · ${Math.round(d / 365)} years of history`;
+  if (d >= 360) return " · 1 year of history";
+  return ` · <b>${d} days</b> of history · reconnect for more`;
+}
+
 function fmtConnDate(iso) {
   if (!iso) return '';
   return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
@@ -314,7 +325,7 @@ async function loadAccounts() {
         <div class="avatar" style="background:${colorFor(seed)}">${initials(seed)}</div>
         <div class="acct-main">
           <div class="acct-name">${esc(it.institution_name)}</div>
-          <div class="acct-sub small">${it.connected_at ? `Connected ${fmtConnDate(it.connected_at)}` : ''}</div>
+          <div class="acct-sub small">${it.connected_at ? `Connected ${fmtConnDate(it.connected_at)}` : ''}${historyNote(it)}</div>
         </div>
         <button class="btn ghost sm" data-act="disconnect" data-item="${esc(it.item_id)}" data-label="${esc(it.institution_name)}">Disconnect</button>
       </div>
