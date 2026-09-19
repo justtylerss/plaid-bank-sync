@@ -1279,9 +1279,13 @@ const PROP_FIRM_PATTERNS = [
   ['Goat Funded Trader', ['goat funded']],
   ['Instant Funding', ['instant funding']],
 ];
+const squash = (s) => norm(s).replace(/[^a-z0-9]/g, '');
 function detectPropFirmName(desc) {
   const d = norm(desc);
-  for (const [name, patterns] of PROP_FIRM_PATTERNS) if (patterns.some((p) => d.includes(p))) return name;
+  const sq = squash(desc);
+  for (const [name, patterns] of PROP_FIRM_PATTERNS) {
+    if (patterns.some((p) => d.includes(p) || (p.length > 3 && sq.includes(squash(p))))) return name;
+  }
   return null;
 }
 // Builds the biz tag for a detected prop-firm transaction: payouts (income)
@@ -1418,14 +1422,15 @@ const PROP_FIRM_HINTS = [
   'trader', 'trading', 'funded', 'funding', 'futures', 'prop firm', 'propfirm',
   'evaluation', 'challenge', 'payout', 'tradovate', 'rithmic', 'ninjatrader',
 ];
+const COMPANY_NAME = /\b(llc|l\.l\.c|inc|incorporated|ltd|limited|llp|lp|capital|holdings|partners|group)\b/i;
 function propFirmCandidates() {
   const out = [];
   for (const t of sortTx(S.transactions)) {
     if (t.biz && t.biz.firm) continue;          // already counted somewhere
     if (detectPropFirmName(t.desc)) continue;   // the exact list already has it
     const d = norm(t.desc);
-    if (!PROP_FIRM_HINTS.some((h) => d.includes(h))) continue;
-    out.push(t);
+    if (PROP_FIRM_HINTS.some((h) => d.includes(h))) { out.push({ t, why: 'mentions trading' }); continue; }
+    if (t.type === 'income' && COMPANY_NAME.test(t.desc)) { out.push({ t, why: 'money in from a company' }); }
   }
   return out;
 }
@@ -1463,11 +1468,11 @@ function propFirmReviewHTML() {
   }
   if (candidates.length) {
     const shown = candidates.slice(0, 15);
-    const rows = shown.map((t) => `<div class="list-item click" data-act="tx-edit" data-id="${t.id}">
-      <div class="li-main"><div class="li-title">${esc(t.desc)}</div><div class="li-sub">${esc(fmtDate(t.date, { year: true }))} · ${esc(t.type)}</div></div>
-      <span class="amt">${esc(money(t.amount))}</span>
+    const rows = shown.map(({ t, why }) => `<div class="list-item click" data-act="tx-edit" data-id="${t.id}">
+      <div class="li-main"><div class="li-title">${esc(t.desc)}</div><div class="li-sub">${esc(fmtDate(t.date, { year: true }))} · ${esc(t.type)} · ${esc(why)}</div></div>
+      <span class="amt ${t.type === 'income' ? 'pos' : ''}">${esc(money(t.amount))}</span>
     </div>`).join('');
-    cards.push(UI.card('Possible prop firm activity', `<p class="text-2" style="margin-bottom:10px">These mention trading words but aren't attributed to a firm, so they're not in the totals. Some will be unrelated — click any that belong to a firm and set the business and firm name on it.</p><div class="list">${rows}</div>${candidates.length > shown.length ? `<p class="muted small" style="margin-top:10px">${candidates.length - shown.length} more not shown.</p>` : ''}`, { cls: 's12' }));
+    cards.push(UI.card('Possible prop firm activity', `<p class="text-2" style="margin-bottom:10px">Not attributed to a firm, so not in the totals above — either they mention trading, or they're money in from something calling itself a company, which is the shape a payout takes. Plenty will be unrelated, so nothing here is counted until you say so. Click one to set its business and firm.</p><div class="list">${rows}</div>${candidates.length > shown.length ? `<p class="muted small" style="margin-top:10px">${candidates.length - shown.length} more not shown.</p>` : ''}`, { cls: 's12' }));
   }
   const note = coverage ? `<p class="note" style="margin-top:12px">${icon('info')}<span>${coverage}</span></p>` : '';
   return `<div class="grid">${cards.join('')}</div>${note}`;
@@ -2766,6 +2771,8 @@ const CHANGELOG = [
   {
     date: 'Sep 19, 2026',
     items: [
+      'Firm names now match regardless of spacing. A statement reading "MyFunded Futures LLC" matched none of the spellings the app knew, which is why its payouts never reached the Prop firms totals — comparison now ignores spaces, punctuation and casing entirely.',
+      'Money arriving from something calling itself a company (LLC, Inc, Capital, Holdings…) is listed under Possible prop firm activity for you to confirm. It is never counted automatically, since plenty of ordinary income comes from companies too.',
       'Fixed prop firm payouts going missing. Banks report an incoming payout as a transfer, and transfers skipped firm detection entirely — so payouts never reached the Prop firms totals. A recognised firm name now overrides the transfer label. MyFundedFutures also matches more of the ways it appears on a statement.',
       'Prop firms gained a review panel: any transaction matching a known firm but not counted in the totals is listed with a one-click fix, and transfers (where your bank kept no direction) ask whether they were a payout or a fee. It also shows how far back your transaction history actually goes, so a short Plaid window reads as a date rather than as missing purchases.',
       'Needs review on the Dashboard collects transactions that are already in your books but ambiguous — no category, a business expense with no write-off category, a trading expense with no firm named, or a large amount left on a catch-all category. Click any of them to sort it out.',
