@@ -759,6 +759,23 @@ body.compact .table td { padding-top: 8px; padding-bottom: 8px; }
   .table-wrap { overflow-x: auto; }
 }
 
+/* The amount is what the row is for, so it should read like it. A step up in
+   size and weight, tabular figures so the columns of digits line up down the
+   page, and enough room that nothing ever truncates. */
+.table .amt-cell { font-size: 14.5px; font-weight: 600; letter-spacing: -.01em;
+  font-variant-numeric: tabular-nums; white-space: nowrap; }
+.table col.c-amt { width: 132px; }
+.table col.c-cat { width: 158px; }
+.table .sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+/* ============ Month stepping ============ */
+.ml-wrap { display: inline-grid; overflow: hidden; }
+.ml-wrap > .ml { grid-area: 1 / 1; }
+@keyframes monthInNext { from { opacity: 0; transform: translateX(14px); } }
+@keyframes monthInPrev { from { opacity: 0; transform: translateX(-14px); } }
+.month-nav.step-next .ml { animation: monthInNext var(--dur-2) var(--ease-out); }
+.month-nav.step-prev .ml { animation: monthInPrev var(--dur-2) var(--ease-out); }
+
 /* ============ Motion ============
    Applied on navigation only, never on every re-render. Re-animating cards
    each time a filter changes is the single fastest way to make an interface
@@ -2599,6 +2616,7 @@ const ui = {
   txSort: Prefs.get('txSort', 'date-desc'),
   animateIn: true,
   swapIn: false,
+  monthStep: '',
   forecastDays: Number(Prefs.get('forecastDays', '60')) || 60,
   compact: Prefs.get('compact', '0') === '1',
   txSel: new Set(),
@@ -2703,20 +2721,29 @@ ACT['logout'] = async () => {
 };
 function topbarHTML() {
   const v = VIEWS[ui.view];
+  /* The month sits on the right, where it is the only control up here. Import
+     and Add are gone — both are reachable from the nav and from their keyboard
+     shortcuts, and a toolbar carrying three things of unequal importance made
+     the month the hardest of them to find. */
   const monthNav = v.month ? `<div class="month-nav" role="group" aria-label="Month">
       <button data-act="month" data-d="-1" aria-label="Previous month">${icon('chevL')}</button>
-      <button class="ml" data-act="month" data-d="0" title="Jump to current month">${esc(monthLabel(ui.month, 'short'))}</button>
+      <span class="ml-wrap"><button class="ml" data-act="month" data-d="0" title="Jump to current month" data-month="${esc(ui.month)}">${esc(monthLabel(ui.month, 'short'))}</button></span>
       <button data-act="month" data-d="1" aria-label="Next month">${icon('chevR')}</button></div>` : '';
   return `<button class="btn ghost icon-btn menu-btn" data-act="open-nav" aria-label="Open menu">${icon('menu')}</button>
-    <h1>${esc(v.title)}</h1>${monthNav}
-    <button class="btn accent" data-act="go" data-view="import" title="Import (I)">${icon('upload')}<span class="add-label">Import</span>${S.inbox.length ? `<span class="kbd" style="border-color:transparent">${S.inbox.length}</span>` : ''}</button>
-    <button class="btn primary" data-act="tx-add" title="New transaction (N)">${icon('plus')}<span class="add-label">Add</span> <span class="kbd hide-md">N</span></button>`;
+    <h1>${esc(v.title)}</h1><span class="spacer"></span>${monthNav}`;
 }
 function render() {
   if (!S) return;
   const v = VIEWS[ui.view] || VIEWS.dashboard;
   $('#sidebar').innerHTML = sidebarHTML();
   $('#topbar').innerHTML = topbarHTML();
+  // Replay the slide only on an actual step, and clear it so a later
+  // re-render for some other reason does not animate the month again.
+  if (ui.monthStep) {
+    const mn = $('#topbar').querySelector('.month-nav');
+    if (mn) mn.classList.add('step-' + ui.monthStep);
+    ui.monthStep = '';
+  }
   chartJobs.clear();
   $('#view').innerHTML = v.render();
   // Motion marks a change of place, so it runs on navigation and not on the
@@ -2981,7 +3008,13 @@ ACT['pace-range'] = (el) => { ui.paceRange = el.dataset.range || 'month'; Prefs.
 ACT['fc-range'] = (el) => { ui.forecastDays = Number(el.dataset.days) || 60; Prefs.set('forecastDays', String(ui.forecastDays)); ui.swapIn = true; render(); };
 ACT.density = () => { ui.compact = !ui.compact; Prefs.set('compact', ui.compact ? '1' : '0'); document.body.classList.toggle('compact', ui.compact); render(); toast(ui.compact ? 'Compact rows' : 'Comfortable rows'); };
 ACT.noop = () => {};
-ACT.month = (el) => { const d = Number(el.dataset.d); ui.month = d === 0 ? curMonth() : addMonths(ui.month, d); ui.swapIn = true; render(); };
+ACT.month = (el) => {
+  const d = Number(el.dataset.d);
+  ui.month = d === 0 ? curMonth() : addMonths(ui.month, d);
+  ui.swapIn = true;
+  ui.monthStep = d > 0 ? 'next' : d < 0 ? 'prev' : '';
+  render();
+};
 ACT.go = (el) => go(el.dataset.view);
 
 /* =========================================================
@@ -3435,19 +3468,32 @@ function txFiltered() {
     return true;
   }).sort(txSorter(ui.txSort));
 }
+/* A transaction is two things: what it was, and what it cost. Those are what
+   people scan for, so they get the columns. The card, the business and any
+   firm or note are real information but secondary — they sit under the
+   description as quiet metadata instead of each taking a column and pushing
+   the amount off to the right, which is how it ended up sixth of eight and
+   unreadable at a glance. Category keeps its own column because it is the one
+   dimension people scan down rather than read across. */
 function txRow(t) {
   const c = catOf(t.cat);
+  const pm = pmOf(t.pm);
   const firm = t.biz && t.biz.firm ? t.biz.firm : '';
-  const sub = [firm, t.notes, (t.tags || []).map((x) => '#' + x).join(' ')].filter(Boolean).join(' · ');
+  const biz = t.biz && bizOf(t.biz.b);
+  const meta = [
+    pm ? pm.name : '',
+    biz ? biz.name : '',
+    firm && firm !== (biz && biz.name) ? firm : '',
+    t.notes,
+    (t.tags || []).map((x) => '#' + x).join(' '),
+  ].filter(Boolean).join(' · ');
   const a = t.type === 'income' ? amt(t.amount, { sign: true }, 'pos') : t.type === 'transfer' ? `<span class="muted amt">${esc(money(t.amount))}</span>` : amt(-t.amount);
   return `<tr class="click" data-act="tx-edit" data-id="${t.id}">
     <td class="cb"><input type="checkbox" onclick="event.stopPropagation()" data-change="tx-sel" data-id="${t.id}" ${ui.txSel.has(t.id) ? 'checked' : ''} aria-label="Select ${esc(t.desc)}"></td>
     <td class="nowrap muted hide-sm">${fmtDate(t.date)}</td>
-    <td><div class="desc">${esc(t.desc)}</div>${sub ? `<div class="sub hide-sm">${esc(sub)}</div>` : ''}<div class="sub show-sm">${esc([fmtDate(t.date), t.type === 'transfer' ? 'Transfer' : c ? c.name : '', t.biz ? 'Business' : ''].filter(Boolean).join(' · '))}</div></td>
+    <td><div class="desc">${esc(t.desc)}</div>${meta ? `<div class="sub hide-sm">${esc(meta)}</div>` : ''}<div class="sub show-sm">${esc([fmtDate(t.date), t.type === 'transfer' ? 'Transfer' : c ? c.name : '', pm ? pm.name : ''].filter(Boolean).join(' · '))}</div></td>
     <td class="hide-sm">${t.type === 'transfer' ? '<span class="badge">Transfer</span>' : UI.cat(c)}</td>
-    <td class="hide-md">${UI.pm(pmOf(t.pm))}</td>
-    <td class="hide-sm">${UI.bizBadge(t)}</td>
-    <td class="num">${a}</td>
+    <td class="num amt-cell">${a}</td>
     <td class="actions hide-sm"><span class="row-actions"><button class="btn ghost icon-btn sm" data-act="tx-dup" data-id="${t.id}" aria-label="Duplicate" title="Duplicate">${icon('copy')}</button><button class="btn ghost icon-btn sm" data-act="tx-del" data-id="${t.id}" aria-label="Delete" title="Delete">${icon('trash')}</button></span></td>
   </tr>`;
 }
@@ -3465,7 +3511,7 @@ function txResultsHTML() {
     ? `<button class="btn sm ghost danger" data-act="tx-del-selected">${icon('trash')}Delete ${nSel} selected</button><button class="btn sm ghost" data-act="tx-select-toggle">Select none</button>`
     : `<button class="btn sm ghost" data-act="rescan" title="Re-check every transaction against the latest prop firm list and your rules">${icon('refresh')}Re-scan</button><button class="btn sm ghost" data-act="csv-import">${icon('upload')}Import CSV</button><button class="btn sm ghost" data-act="tx-export">${icon('download')}Export</button>`;
   return `<div class="summary-strip"><span>${esc(scopeLabel)}</span><span><b>${list.length}</b> transactions</span><span>In <b class="amt">${esc(money(inc))}</b></span><span>Out <b class="amt">${esc(money(out))}</b></span><span>Net <b class="amt">${esc(money(inc - out, { sign: true }))}</b></span>${ded ? `<span>Deductible <b class="amt">${esc(money(ded))}</b></span>` : ''}<span class="spacer"></span>${bulkBar}</div>
-  <div class="card flush"><div class="table-wrap"><table class="table"><colgroup><col class="c-cb"><col class="c-date hide-sm"><col><col class="c-cat hide-sm"><col class="c-pm hide-md"><col class="c-biz hide-sm"><col class="c-amt"><col class="c-act hide-sm"></colgroup><thead><tr><th class="cb"><input type="checkbox" data-act="tx-select-toggle" ${allShownSelected ? 'checked' : ''} aria-label="Select all shown"></th><th class="hide-sm">Date</th><th>Description</th><th class="hide-sm">Category</th><th class="hide-md">Paid with</th><th class="hide-sm">Business</th><th class="num">Amount</th><th class="hide-sm"><span class="sr-only">Actions</span></th></tr></thead><tbody>${shown.map(txRow).join('')}</tbody></table></div>
+  <div class="card flush"><div class="table-wrap"><table class="table"><colgroup><col class="c-cb"><col class="c-date hide-sm"><col><col class="c-cat hide-sm"><col class="c-amt"><col class="c-act hide-sm"></colgroup><thead><tr><th class="cb"><input type="checkbox" data-act="tx-select-toggle" ${allShownSelected ? 'checked' : ''} aria-label="Select all shown"></th><th class="hide-sm">Date</th><th>Description</th><th class="hide-sm">Category</th><th class="num">Amount</th><th class="hide-sm"><span class="sr-only">Actions</span></th></tr></thead><tbody>${shown.map(txRow).join('')}</tbody></table></div>
   ${list.length > shown.length ? `<div class="show-more"><button class="btn sm" data-act="tx-more">Show ${Math.min(150, list.length - shown.length)} more of ${list.length - shown.length}</button></div>` : ''}</div>`;
 }
 VIEWS.transactions = {
