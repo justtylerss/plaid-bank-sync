@@ -1104,6 +1104,55 @@ function monthTotals(mk) {
 }
 /* Cash flow / spending pace over any span: totals for a date range, and
    the current-vs-previous period bounds for a given granularity. */
+// A month summarised against the one before it. Everything here comes from
+// transactions already in the books, so there is no new state to keep in sync.
+function monthReview(mk) {
+  const cur = monthTotals(mk);
+  const was = monthTotals(addMonths(mk, -1));
+  const byCat = new Map();
+  let biggest = null;
+  let count = 0;
+  for (const t of S.transactions) {
+    if (t.type !== 'expense' || !t.date.startsWith(mk)) continue;
+    count++;
+    if (!biggest || t.amount > biggest.amount) biggest = t;
+    const c = catOf(t.cat);
+    const key = c ? c.id : '_none';
+    byCat.set(key, (byCat.get(key) || 0) + t.amount);
+  }
+  const top = [...byCat.entries()]
+    .map(([id, amount]) => ({ cat: catOf(id), amount }))
+    .sort((a, b) => b.amount - a.amount)
+    .slice(0, 3);
+  return { mk, cur, was, top, biggest, count,
+    spendDelta: cur.expense - was.expense,
+    incomeDelta: cur.income - was.income };
+}
+
+// A recurring charge whose real cost has drifted from what the schedule says.
+// Subscriptions creep up quietly and the schedule is what you budget from, so
+// a gap between the two is worth surfacing. Compares the most recent matching
+// transaction against the amount on the bill.
+function recurringDrift() {
+  const out = [];
+  for (const r of S.recurring) {
+    if (r.active === false || !r.name || !(r.amount > 0)) continue;
+    const key = norm(r.name);
+    let latest = null;
+    for (const t of S.transactions) {
+      if (t.type !== r.type) continue;
+      if (!norm(t.desc).includes(key)) continue;
+      if (!latest || t.date > latest.date) latest = t;
+    }
+    if (!latest) continue;
+    const delta = latest.amount - r.amount;
+    // Ignore rounding and ordinary variation; a real price change is bigger.
+    if (Math.abs(delta) < 100 || Math.abs(delta) / r.amount < 0.02) continue;
+    out.push({ r, latest, delta });
+  }
+  return out.sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
+}
+
 function rangeTotals(startDate, endDateExcl) {
   let income = 0, expense = 0;
   for (const t of S.transactions) {
@@ -1438,6 +1487,52 @@ function needsReview() {
     }
   }
   return out;
+}
+
+// The month, in the terms you would describe it to someone: more or less than
+// last month, where it went, and the one purchase that stands out.
+function monthReviewHTML(mk) {
+  const r = monthReview(mk);
+  if (!r.count && !r.cur.income) return '';
+  const dir = (v) => (v > 0 ? 'more' : 'less');
+  const spendLine = r.was.expense
+    ? esc(money(Math.abs(r.spendDelta))) + ' ' + dir(r.spendDelta) + ' than last month'
+    : 'No spending recorded last month to compare against';
+  const rows = r.top.map((t) => '<div class="list-item"><i class="dot" style="--dot:'
+    + (t.cat ? colorVar(t.cat.color) : 'var(--muted)') + '"></i><div class="li-main"><div class="li-title">'
+    + esc(t.cat ? t.cat.name : 'Uncategorised') + '</div></div><div class="li-amt amt">'
+    + esc(money(t.amount)) + '</div></div>').join('');
+  const big = r.biggest
+    ? '<p class="muted small" style="margin-top:10px">Biggest single purchase: <b>' + esc(r.biggest.desc)
+      + '</b> at <span class="amt">' + esc(money(r.biggest.amount)) + '</span></p>'
+    : '';
+  return UI.card('Month in review',
+    '<div class="row wrap" style="gap:22px;margin-bottom:14px">'
+    + '<div><div class="muted small">Spent</div><div class="amt" style="font-size:20px;font-weight:650">' + esc(money(r.cur.expense)) + '</div></div>'
+    + '<div><div class="muted small">Earned</div><div class="amt" style="font-size:20px;font-weight:650">' + esc(money(r.cur.income)) + '</div></div>'
+    + '<div><div class="muted small">Net</div><div class="amt" style="font-size:20px;font-weight:650">' + esc(money(r.cur.net, { sign: true })) + '</div></div>'
+    + '</div><p class="text-2" style="margin-bottom:10px">' + spendLine + ' · ' + plural(r.count, 'purchase') + '</p>'
+    + '<div class="list">' + rows + '</div>' + big,
+    { sub: monthLabel(mk), cls: 's6' });
+}
+
+// Bills whose real cost has moved away from the schedule.
+function driftHTML() {
+  const drift = recurringDrift();
+  if (!drift.length) return '';
+  const rows = drift.slice(0, 6).map(({ r, latest, delta }) => {
+    const up = delta > 0;
+    return '<div class="list-item click" data-act="rec-edit" data-id="' + r.id + '">'
+      + '<div class="ico-tile" style="--dot:' + (up ? 'var(--warn)' : 'var(--pos)') + '">' + icon(up ? 'trend' : 'check') + '</div>'
+      + '<div class="li-main"><div class="li-title">' + esc(r.name) + '</div><div class="li-sub">'
+      + 'scheduled ' + esc(money(r.amount)) + ' · last charged ' + esc(money(latest.amount))
+      + ' on ' + esc(fmtDate(latest.date)) + '</div></div>'
+      + '<div class="li-amt amt">' + (up ? '+' : '') + esc(money(delta)) + '</div></div>';
+  }).join('');
+  return UI.card('Price changes',
+    '<p class="text-2" style="margin-bottom:10px">These bills are being charged a different amount than the schedule says. Open one to update it.</p>'
+    + '<div class="list">' + rows + '</div>',
+    { sub: plural(drift.length, 'bill'), cls: 's6' });
 }
 
 function needsReviewHTML(cls) {
@@ -2149,6 +2244,13 @@ document.addEventListener('keydown', (e) => {
     }
     return;
   }
+  // Ctrl/Cmd+K is deliberately above the modifier guard below, which exists to
+  // let browser shortcuts through.
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+    e.preventDefault();
+    if (S && !modalStack.length) openPalette();
+    return;
+  }
   if (!S || modalStack.length || e.metaKey || e.ctrlKey || e.altKey) return;
   const tag = (e.target.tagName || '').toLowerCase();
   if (['input', 'textarea', 'select'].includes(tag) || e.target.isContentEditable) return;
@@ -2159,6 +2261,63 @@ document.addEventListener('keydown', (e) => {
   else if (k === 'i') go('import');
   else if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && VIEWS[ui.view] && VIEWS[ui.view].month) { ui.month = addMonths(ui.month, e.key === 'ArrowLeft' ? -1 : 1); render(); }
 });
+
+/* ---------- Command palette ----------
+   One box that reaches everything: views, actions, and your own transactions
+   by description. Ctrl/Cmd+K, which is the shortcut people already expect. */
+function paletteItems() {
+  const items = [];
+  for (const [group, entries] of NAV) {
+    for (const [view, label] of entries) items.push({ label, hint: group, run: () => go(view) });
+  }
+  items.push({ label: 'New transaction', hint: 'Action', run: () => txModal() });
+  items.push({ label: 'Re-scan transactions', hint: 'Action', run: () => ACT.rescan() });
+  items.push({ label: ui.privacy ? 'Show amounts' : 'Hide amounts', hint: 'Action', run: () => togglePrivacy() });
+  return items;
+}
+function openPalette() {
+  const base = paletteItems();
+  openModal({
+    title: 'Go to…',
+    footer: '<span class="spacer"></span><button type="button" class="btn" data-close>Close</button>',
+    body: '<input class="input" id="pal-q" placeholder="Search views, actions, transactions…" autocomplete="off">'
+      + '<div class="list" id="pal-list" style="margin-top:12px;max-height:50vh;overflow:auto"></div>',
+    onOpen(form) {
+      const q = form.querySelector('#pal-q');
+      const list = form.querySelector('#pal-list');
+      let rows = [];
+      const fire = (r) => { closeModal(modalStack[modalStack.length - 1]); setTimeout(r.run, 0); };
+      const draw = () => {
+        const term = norm(q.value);
+        rows = base.filter((x) => !term || norm(x.label).includes(term) || norm(x.hint).includes(term));
+        if (term.length >= 2) {
+          for (const t of S.transactions) {
+            if (!norm(t.desc).includes(term)) continue;
+            rows.push({ label: t.desc, hint: fmtDate(t.date) + ' · ' + money(t.amount), run: () => txModal(t) });
+            if (rows.length > 40) break;
+          }
+        }
+        rows = rows.slice(0, 40);
+        list.innerHTML = rows.length
+          ? rows.map((r, n) => '<button type="button" class="list-item" data-pal="' + n
+              + '" style="width:100%;text-align:left;background:none;border:0;cursor:pointer"><div class="li-main"><div class="li-title">'
+              + esc(r.label) + '</div><div class="li-sub">' + esc(r.hint) + '</div></div></button>').join('')
+          : '<p class="muted small">Nothing matches.</p>';
+      };
+      draw();
+      q.addEventListener('input', draw);
+      q.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && rows.length) { e.preventDefault(); fire(rows[0]); }
+      });
+      list.addEventListener('click', (e) => {
+        const b = e.target.closest('[data-pal]');
+        if (b) fire(rows[Number(b.dataset.pal)]);
+      });
+      setTimeout(() => q.focus(), 40);
+    },
+  });
+}
+ACT.palette = () => openPalette();
 
 ACT['open-nav'] = () => document.body.classList.add('nav-open');
 ACT['close-nav'] = () => document.body.classList.remove('nav-open');
@@ -2525,7 +2684,7 @@ VIEWS.dashboard = {
     const pmItems = [...byPm.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6).map(([id, v]) => { const pm = pmOf(id); return { label: pm ? pm.name : 'Not specified', value: v, color: pm ? colorVar(pm.color) : 'var(--muted)', tip: [tipRow('Spent', money(v)), ...(pm && pm.last4 ? [tipRow('Card', '•••• ' + pm.last4)] : [])] }; });
     const pmCard = UI.card('By payment method', hbars(pmItems), { sub: monthLabel(mk), cls: 's4', actions: '<button class="btn sm ghost" data-act="go" data-view="cards">Cards</button>' });
 
-    return `${banner}${stats}<div class="grid">${needsReviewHTML('s12')}${cashflow}${hero}${askCardHTML('s8')}${quickImportHTML(aiReady() ? 's4' : 's12')}${pace}${cats}${bills}${recentCard}${pmCard}</div>`;
+    return `${banner}${stats}<div class="grid">${needsReviewHTML('s12')}${monthReviewHTML(mk)}${driftHTML()}${cashflow}${hero}${askCardHTML('s8')}${quickImportHTML(aiReady() ? 's4' : 's12')}${pace}${cats}${bills}${recentCard}${pmCard}</div>`;
   },
 };
 function txListItem(x) {
