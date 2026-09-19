@@ -616,6 +616,7 @@ const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 const sum = (arr, fn = (x) => x) => arr.reduce((a, x) => a + (fn(x) || 0), 0);
 const byId = (arr, id) => arr.find((x) => x.id === id);
 const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
+const ordinal = (n) => { const v = n % 100; const s = v >= 11 && v <= 13 ? 'th' : ['th', 'st', 'nd', 'rd'][n % 10] || 'th'; return n + s; };
 const plural = (n, w, p = w + 's') => `${n} ${n === 1 ? w : p}`;
 const norm = (s) => String(s || '').trim().toLowerCase();
 
@@ -2276,6 +2277,30 @@ function txModal(tx = null, preset = {}, opts = {}) {
           fn: () => commit(() => undoRuleToPast(snaps), `${plural(snaps.length, 'transaction')} put back`),
         });
       }
+      // Changing a category on one row almost always means the same merchant
+      // was miscategorised everywhere. The rule checkbox does this, but it is
+      // opt-in and easy to miss, so when the others are still on a different
+      // category we say so and offer to fix them. Offered, not applied: this
+      // rewrites rows the person is not looking at.
+      if (!isNew && !fromInbox && !retro.length && desc && type !== 'transfer') {
+        const m = norm(desc);
+        const others = S.transactions.filter((x) => x.id !== rec.id
+          && x.type === rec.type && norm(x.desc) === m && x.cat !== rec.cat);
+        if (others.length) {
+          const asRule = { match: desc, cat: rec.cat, pm: '', biz: rec.biz ? { ...rec.biz } : null };
+          toast(`${plural(others.length, 'other')} “${desc}” ${others.length === 1 ? 'transaction is' : 'transactions are'} categorised differently`, '', {
+            label: 'Fix them too',
+            fn: () => {
+              let snaps = [];
+              commit(() => { snaps = applyRuleToPast(asRule, rec.id); }, '');
+              toast(`${plural(snaps.length, 'transaction')} updated`, '', {
+                label: 'Undo',
+                fn: () => commit(() => undoRuleToPast(snaps), `${plural(snaps.length, 'transaction')} put back`),
+              });
+            },
+          });
+        }
+      }
       if (another) setTimeout(() => txModal(null, { date, type, pm: rec.pm }), 0);
     },
   });
@@ -2835,6 +2860,60 @@ const CHANGELOG = [
     ],
   },
 ];
+// Card payments as an issuer words them. There are a dozen variants but
+// nearly all of them say "payment" somewhere.
+const CARD_PAYMENT_RE = /payment thank|thank you for your payment|autopay|auto pay|online payment|mobile payment|epay|e-pay|payment received|card payment|cc payment|pymt|bal tran/i;
+
+// Guess a card's due day from when its payments actually land. That is the
+// payment date rather than the billed due date: identical for anyone on
+// autopay, and the right ballpark otherwise. Median, not mean, so a single
+// early or late payment cannot drag it, and never from fewer than two.
+function inferDueDay(pmId) {
+  const days = [];
+  for (const t of S.transactions) {
+    if (t.pm !== pmId || !CARD_PAYMENT_RE.test(t.desc || '')) continue;
+    const d = Number(String(t.date).slice(8, 10));
+    if (d >= 1 && d <= 31) days.push(d);
+  }
+  if (days.length < 2) return null;
+  days.sort((a, b) => a - b);
+  // Payments scattered across the month are somebody paying whenever, not a
+  // due date. Only claim a day when they cluster.
+  const spread = days[days.length - 1] - days[0];
+  if (spread > 10 && days.length < 4) return null;
+  return { day: days[Math.floor(days.length / 2)], n: days.length };
+}
+
+// Interest and fees: the cost of carrying a card rather than anything you
+// chose to buy. Caught by category where Plaid supplied one and by wording
+// otherwise, then split — interest is the number worth reacting to, and an
+// annual fee is not the same thing.
+const INTEREST_RE = /interest charge|finance charge|purchase interest|interest on|int chg|interest assessed/i;
+const FEE_RE = /\bfee\b|annual membership|late charge|overlimit|over limit|cash advance|foreign transaction|atm fee|overdraft|nsf/i;
+function interestAndFees(year) {
+  const out = { interest: 0, fees: 0, total: 0, byCard: new Map(), items: [] };
+  for (const t of S.transactions) {
+    if (t.type !== 'expense') continue;
+    if (year && !String(t.date).startsWith(year)) continue;
+    const cat = catOf(t.cat);
+    const byCat = !!cat && cat.name === 'Fees & interest';
+    const isInterest = INTEREST_RE.test(t.desc || '');
+    const isFee = FEE_RE.test(t.desc || '');
+    if (!byCat && !isInterest && !isFee) continue;
+    const interest = isInterest;
+    if (interest) out.interest += t.amount; else out.fees += t.amount;
+    out.total += t.amount;
+    const key = t.pm || '_none';
+    const cur = out.byCard.get(key) || { interest: 0, fees: 0, n: 0 };
+    if (interest) cur.interest += t.amount; else cur.fees += t.amount;
+    cur.n++;
+    out.byCard.set(key, cur);
+    out.items.push({ t, interest });
+  }
+  out.items.sort((a, b) => (a.t.date < b.t.date ? 1 : -1));
+  return out;
+}
+
 function nextDue(day) {
   if (!day) return null;
   const t = parseD(todayStr());
@@ -2884,14 +2963,12 @@ VIEWS.cards = {
     const others = list.filter((p) => !grouped.has(p.id));
     if (others.length) sections += `<h3 class="pm-group">Other accounts<span>${plural(others.length, 'account')}</span></h3><div class="pm-grid">${others.map(cardHTML).join('')}</div>`;
 
-    // Every credit card appears here, not only the ones with a due day set.
-    // Gating the whole card on dueDay meant it rendered as nothing at all —
-    // indistinguishable from the feature being missing — when the field is
-    // blank by default and bank-synced cards never set it. A card with no due
-    // day now says so and offers to fix it.
+    // Every credit card appears here, not only the ones with a due day set:
+    // gating the card on dueDay made it render as nothing at all, which is
+    // indistinguishable from the feature being absent.
     const creditCards = list.filter((p) => !p.archived && p.type === 'credit');
     const dues = creditCards
-      .map((p) => ({ p, date: p.dueDay ? nextDue(p.dueDay) : null }))
+      .map((p) => ({ p, date: p.dueDay ? nextDue(p.dueDay) : null, guess: p.dueDay ? null : inferDueDay(p.id) }))
       .sort((a, b) => {
         if (!a.date && !b.date) return 0;
         if (!a.date) return 1;
@@ -2899,20 +2976,55 @@ VIEWS.cards = {
         return a.date < b.date ? -1 : 1;
       });
     const anyDue = dues.some((d) => d.date);
-    const dueCard = creditCards.length ? UI.card('Payments due', `<div class="list">${dues.map(({ p, date }) => {
+    const guessable = dues.filter((d) => !d.date && d.guess);
+    const dueRow = ({ p, date, guess }) => {
       const away = date ? daysBetween(todayStr(), date) : null;
       const when = away === null ? '' : away <= 0 ? 'Due today' : away === 1 ? 'Tomorrow' : `In ${plural(away, 'day')}`;
-      const sub = date ? `${esc(fmtDate(date))} · ${esc(when)}` : 'No due day set — tap to add one';
-      const spend = money(stat(p.id).m, { whole: true });
+      const sub = date
+        ? `${esc(fmtDate(date))} · ${esc(when)}`
+        : guess
+          ? `Payments usually land on the ${esc(ordinal(guess.day))} · from ${plural(guess.n, 'payment')}`
+          : 'No due day set — tap to add one';
+      const action = !date && guess
+        ? `<button class="btn sm" data-act="pm-usedue" data-id="${p.id}" data-day="${guess.day}" onclick="event.stopPropagation()">Use the ${esc(ordinal(guess.day))}</button>`
+        : '';
       return `<div class="list-item click" data-act="pm-edit" data-id="${p.id}"><i class="dot" style="--dot:${colorVar(p.color)}"></i>
         <div class="li-main"><div class="li-title">${esc(p.name)}${p.last4 ? ` ···· ${esc(p.last4)}` : ''}</div>
-        <div class="li-sub ${date ? '' : 'muted'}">${sub}</div></div>
-        <div class="li-amt amt">${esc(spend)}</div></div>`;
-    }).join('')}</div><p class="muted small" style="margin-top:10px">${anyDue ? 'Amount shown is what you spent on that card this month, not the statement balance.' : 'Add a due day to a card and it will be tracked here. Amounts shown are this month&rsquo;s spending on each card, not statement balances.'}</p>`, { cls: 's12' }) : '';
+        <div class="li-sub">${sub}</div></div>
+        <div class="li-amt amt">${esc(money(stat(p.id).m, { whole: true }))}</div>${action}</div>`;
+    };
+    const dueFoot = anyDue
+      ? 'Amount shown is what you spent on that card this month, not the statement balance.'
+      : 'Amounts shown are this month&rsquo;s spending on each card, not statement balances.';
+    const dueCard = creditCards.length ? UI.card('Payments due',
+      `<div class="list">${dues.map(dueRow).join('')}</div><p class="muted small" style="margin-top:10px">${dueFoot}</p>`,
+      { cls: 's12', actions: guessable.length > 1 ? `<button class="btn sm" data-act="pm-usedue-all">Use all ${guessable.length} detected</button>` : '' }) : '';
+
+    // Interest and fees, kept apart from ordinary spending. What a card costs
+    // you to carry is a different question from what you bought with it, and
+    // it is the number most worth seeing per card.
+    const fy = mk.slice(0, 4);
+    const cost = interestAndFees(fy);
+    const costRows = [...cost.byCard.entries()]
+      .map(([id, v]) => ({ pm: pmOf(id), v }))
+      .sort((a, b) => (b.v.interest + b.v.fees) - (a.v.interest + a.v.fees));
+    const costCard = cost.total ? UI.card('Interest & fees', `
+      <div class="row wrap" style="gap:22px;margin-bottom:14px">
+        <div><div class="muted small">Interest</div><div class="amt" style="font-size:20px;font-weight:650">${esc(money(cost.interest))}</div></div>
+        <div><div class="muted small">Fees</div><div class="amt" style="font-size:20px;font-weight:650">${esc(money(cost.fees))}</div></div>
+        <div><div class="muted small">Total in ${esc(fy)}</div><div class="amt" style="font-size:20px;font-weight:650">${esc(money(cost.total))}</div></div>
+      </div>
+      <div class="list">${costRows.map(({ pm, v }) => `<div class="list-item">
+        <i class="dot" style="--dot:${pm ? colorVar(pm.color) : 'var(--muted)'}"></i>
+        <div class="li-main"><div class="li-title">${esc(pm ? pm.name : 'No card recorded')}</div>
+        <div class="li-sub">${plural(v.n, 'charge')}${v.interest ? ` · interest ${esc(money(v.interest))}` : ''}${v.fees ? ` · fees ${esc(money(v.fees))}` : ''}</div></div>
+        <div class="li-amt amt">${esc(money(v.interest + v.fees))}</div></div>`).join('')}</div>
+      <p class="muted small" style="margin-top:10px">Interest is what carrying a balance cost you. Charges are matched by category and by wording, so check anything that looks out of place.</p>`,
+      { sub: `${plural(cost.items.length, 'charge')} in ${fy}`, cls: 's12' }) : '';
 
     const unassigned = sum(S.transactions.filter((t) => !t.pm && t.type === 'expense' && t.date.startsWith(mk)), (t) => t.amount);
     return `<div class="row between wrap" style="margin-bottom:14px"><p class="note">${icon('shield')}Only nicknames and last 4 digits are stored, encrypted. Never full numbers, CVV or PINs.</p><button class="btn sm" data-act="pm-add">${icon('plus')}Add card or account</button></div>
-      ${sections}${dueCard ? `<div class="grid" style="margin-top:18px">${dueCard}</div>` : ''}
+      ${sections}${dueCard || costCard ? `<div class="grid" style="margin-top:18px">${dueCard}${costCard}</div>` : ''}
       <div class="grid" style="margin-top:18px">${pmMonthCard(mk)}${pmBizCard(y)}</div>
       ${unassigned ? `<div class="banner" style="margin-top:18px">${icon('info')}<div class="grow"><span class="amt">${esc(money(unassigned))}</span> of ${esc(monthLabel(mk))} spending has no payment method.</div><button class="btn sm" data-act="pm-unassigned">Review</button></div>` : ''}`;
   },
@@ -2948,6 +3060,28 @@ function pmModal(p = null, preset = {}) {
     },
   });
 }
+// Detected due days are offered, not written silently. The guess comes from
+// payment history and can be wrong; a wrong due date is the kind of error
+// that hides until a payment is late.
+ACT['pm-usedue'] = (el) => {
+  const p = pmOf(el.dataset.id);
+  const day = Number(el.dataset.day);
+  if (!p || !(day >= 1 && day <= 31)) return;
+  commit(() => { p.dueDay = day; }, `${p.name} due on the ${ordinal(day)}`, {
+    label: 'Undo', fn: () => commit(() => { p.dueDay = ''; }, 'Due day cleared'),
+  });
+};
+ACT['pm-usedue-all'] = () => {
+  const picks = S.paymentMethods
+    .filter((p) => !p.archived && p.type === 'credit' && !p.dueDay)
+    .map((p) => ({ p, guess: inferDueDay(p.id) }))
+    .filter((x) => x.guess);
+  if (!picks.length) return;
+  commit(() => { for (const { p, guess } of picks) p.dueDay = guess.day; },
+    `Due days set on ${plural(picks.length, 'card')}`, {
+      label: 'Undo', fn: () => commit(() => { for (const { p } of picks) p.dueDay = ''; }, 'Due days cleared'),
+    });
+};
 ACT['pm-add'] = () => pmModal();
 ACT['pm-edit'] = (el) => { const p = pmOf(el.dataset.id); if (p) pmModal(p); };
 ACT['pm-del'] = async (el) => {
