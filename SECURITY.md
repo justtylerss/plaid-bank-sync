@@ -55,6 +55,14 @@ file fails to decrypt rather than returning wrong data.
 
 **Transport.** HTTPS, terminated by Railway. No plaintext listener is exposed.
 
+**Administrative access.** The systems that hold the data — Railway (the app
+and its volume) and GitHub (the source, and the sign-in identity for Railway)
+— both require an authenticator-app code on top of a password. Recovery codes
+are stored separately. SMS was removed as a factor on GitHub: it was the
+weakest enrolled method, and the weakest enrolled method is what an attacker
+uses. TOTP is not phishing-resistant; a convincing fake login page can still
+relay a code.
+
 **Secrets.** Held in environment variables, never in the repository. `.env` is
 gitignored and has been verified as untracked. No secret is written to logs.
 
@@ -73,8 +81,9 @@ this application.
 
 Stated plainly so that no one relies on a control that does not exist.
 
-- **No multi-factor authentication.** Two known users, both the owner's own
-  accounts. Accepted risk.
+- **No multi-factor authentication for end users of the app itself.** Two known
+  users, both the owner’s own accounts. Accepted risk. This is separate from
+  administrative MFA on Railway and GitHub, which is in place (section 2).
 - **No encryption of bulk transaction data at rest** beyond whatever the
   hosting volume provides. Only the Plaid tokens are encrypted by the
   application.
