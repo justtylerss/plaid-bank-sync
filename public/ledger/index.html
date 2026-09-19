@@ -441,6 +441,10 @@ tr:hover .row-actions, .row-actions:focus-within { opacity: 1; }
 .chip button:hover { color: var(--text); background: var(--surface-3); }
 .chip button svg { width: 13px; height: 13px; }
 .kbd-list { display: grid; grid-template-columns: auto 1fr; gap: 8px 14px; font-size: 13px; align-items: center; }
+.changelog { display: grid; gap: 18px; }
+.cl-date { font-size: 12px; font-weight: 650; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 8px; }
+.cl-items { margin: 0; padding-left: 18px; display: grid; gap: 6px; }
+.cl-items li { font-size: 13.5px; line-height: 1.5; color: var(--text-2); }
 .danger-zone { border-color: color-mix(in srgb, var(--crit) 40%, transparent); }
 
 /* ============ Import ============ */
@@ -532,7 +536,7 @@ body.dragging::after { content: "Drop to import"; position: fixed; inset: 12px; 
 .job.error .job-ic { background: color-mix(in srgb, var(--crit) 16%, transparent); color: var(--neg); }
 .spin { width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--line-2); border-top-color: var(--accent); animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
-.inbox-table td.cb, .inbox-table th.cb { width: 1%; padding-right: 0; }
+.inbox-table td.cb, .inbox-table th.cb, .table td.cb, .table th.cb { width: 1%; padding-right: 0; }
 .inbox-table input[type=checkbox] { accent-color: var(--accent); width: 17px; height: 17px; }
 .inbox-table tr.off td { opacity: .5; }
 .inbox-table tr.off td.cb { opacity: 1; }
@@ -996,7 +1000,7 @@ function defaultState() {
     ['Car & insurance', 5], ['Phone & internet', 6], ['Subscriptions', 7], ['Shopping', 0],
     ['Health & fitness', 2], ['Entertainment', 4], ['Travel', 6], ['Education', 1],
     ['Personal care', 3], ['Gifts & giving', 5], ['Fees & interest', 7],
-    ['Trading business', 1], ['Insurance business', 0], ['Other', 3],
+    ['Trading business', 1], ['Prop firm', 3], ['Insurance business', 0], ['Other', 3],
   ].map(([n, c]) => cat(n, 'expense', c));
   const income = [
     ['Commissions', 2], ['Trading payouts', 0], ['Paycheck', 6], ['Interest & dividends', 3], ['Refunds', 4], ['Other income', 5],
@@ -1206,6 +1210,59 @@ function propFirmStats(year) {
     if (t.date > f.last) f.last = t.date;
   }
   return [...firms.values()].map((f) => ({ ...f, net: f.payouts - f.spent, roi: f.spent > 0 ? (f.payouts - f.spent) / f.spent : null })).sort((a, b) => b.net - a.net);
+}
+
+// Known prop firms — bank/card transaction descriptions usually contain the
+// firm's name somewhere. Best-effort matching against a real but incomplete
+// list; anything missed still gets normal category handling and can be
+// tagged manually (which teaches a rule for next time, same as everywhere
+// else in the app).
+const PROP_FIRM_PATTERNS = [
+  ['Apex Trader Funding', ['apex trader funding', 'apex trader', 'apextraderfunding']],
+  ['Topstep', ['topstep']],
+  ['FTMO', ['ftmo']],
+  ['MyFundedFutures', ['myfundedfutures', 'my funded futures']],
+  ['My Funded FX', ['my funded fx', 'myfundedfx']],
+  ['Leeloo Trading', ['leeloo']],
+  ['Take Profit Trader', ['take profit trader', 'takeprofittrader']],
+  ['Bulenox', ['bulenox']],
+  ['Elite Trader Funding', ['elite trader funding']],
+  ['The Trading Pit', ['the trading pit', 'tradingpit']],
+  ['Earn2Trade', ['earn2trade', 'earn 2 trade']],
+  ['TradeDay', ['tradeday', 'trade day']],
+  ['Funded Trading Plus', ['funded trading plus', 'fundedtradingplus']],
+  ['Lucid Trading', ['lucid trading', 'lucidtrading']],
+  ['E8 Funding', ['e8 funding', 'e8markets', 'e8 markets']],
+  ['Alpha Capital Group', ['alpha capital']],
+  ['City Traders Imperium', ['city traders imperium']],
+  ['SurgeTrader', ['surgetrader', 'surge trader']],
+  ['FundedNext', ['fundednext', 'funded next']],
+  ['Blueberry Funded', ['blueberry funded']],
+  ['The5%ers', ['the5ers', 'the 5%ers', 'the 5ers']],
+  ['FXIFY', ['fxify']],
+  ['Goat Funded Trader', ['goat funded']],
+  ['Instant Funding', ['instant funding']],
+];
+function detectPropFirmName(desc) {
+  const d = norm(desc);
+  for (const [name, patterns] of PROP_FIRM_PATTERNS) if (patterns.some((p) => d.includes(p))) return name;
+  return null;
+}
+// Builds the biz tag for a detected prop-firm transaction: payouts (income)
+// just carry the firm name; fees (expense) also get a write-off category —
+// "reset" only when the description actually says so (bank descriptors
+// rarely spell that out), "eval" otherwise, since evaluation/challenge fees
+// are the large majority of prop-firm charges.
+function propFirmBizFor(desc, type) {
+  if (type !== 'income' && type !== 'expense') return null;
+  const firm = detectPropFirmName(desc);
+  if (!firm) return null;
+  const tradingBiz = S.businesses.find((b) => b.kind === 'trading');
+  if (!tradingBiz) return null;
+  if (type === 'income') return { b: tradingBiz.id, c: '', pct: 100, firm, receipt: false, rnote: '' };
+  const key = /reset|reactivat/i.test(desc) ? 'reset' : 'eval';
+  const bc = S.bizCats.find((c) => c.key === key) || S.bizCats.find((c) => c.scope === 'trading');
+  return { b: tradingBiz.id, c: bc ? bc.id : '', pct: 100, firm, receipt: false, rnote: '' };
 }
 
 /* ---------- Sample data (for exploring the app) ---------- */
@@ -1470,6 +1527,8 @@ const ui = {
   bizTab: 'all', firmYear: 'all', privacy: Prefs.get('privacy', '0') === '1',
   cashflowMonths: Number(Prefs.get('cashflowMonths', '6')) || 6,
   paceRange: Prefs.get('paceRange', 'month'),
+  txSel: new Set(),
+  firmTab: 'overview',
 };
 const TAB_ID = uid();
 
@@ -1537,7 +1596,7 @@ function sidebarHTML() {
   return `<div class="brand"><span class="brand-mark">${BRAND_SVG}</span><span>Ledger Vault<small>Cloud</small></span></div>${nav}
     <div class="side-foot">
       <nav class="nav">
-        <a href="/" target="_blank" rel="noopener">${icon('landmark')}<span>Bank Sync</span></a>
+        <a href="/">${icon('landmark')}<span>Bank Sync</span></a>
         <a href="#/settings" class="${ui.view === 'settings' ? 'active' : ''}">${icon('sliders')}<span>Settings & privacy</span></a>
       </nav>
       <div class="save-status" id="save-status"><span class="led"></span><span class="t">Synced · private to you</span></div>
@@ -1981,6 +2040,23 @@ ACT['tx-del'] = (el) => {
   const removed = S.transactions[i];
   commit(() => S.transactions.splice(i, 1), 'Transaction deleted', { label: 'Undo', fn: () => commit(() => S.transactions.push(removed), 'Restored') });
 };
+CHG['tx-sel'] = (el) => { const id = el.dataset.id; if (el.checked) ui.txSel.add(id); else ui.txSel.delete(id); render(); };
+ACT['tx-select-toggle'] = () => {
+  const shown = txFiltered().slice(0, ui.txLimit);
+  const allSelected = shown.length > 0 && shown.every((t) => ui.txSel.has(t.id));
+  if (allSelected) shown.forEach((t) => ui.txSel.delete(t.id));
+  else shown.forEach((t) => ui.txSel.add(t.id));
+  render();
+};
+ACT['tx-del-selected'] = async () => {
+  const ids = [...ui.txSel].filter((id) => S.transactions.some((t) => t.id === id));
+  if (!ids.length) return;
+  if (!(await confirmDialog({ title: `Delete ${plural(ids.length, 'transaction')}?`, message: 'They are removed from your books. You can undo right after.', confirmText: 'Delete', danger: true }))) return;
+  const idSet = new Set(ids);
+  const removed = S.transactions.filter((t) => idSet.has(t.id));
+  ui.txSel.clear();
+  commit(() => { S.transactions = S.transactions.filter((t) => !idSet.has(t.id)); }, `Deleted ${plural(removed.length, 'transaction')}`, { label: 'Undo', fn: () => commit(() => S.transactions.push(...removed)) });
+};
 
 /* =========================================================
    Dashboard
@@ -2133,6 +2209,7 @@ function txRow(t) {
   const noRcpt = t.biz && t.type === 'expense' && !t.biz.receipt;
   const a = t.type === 'income' ? amt(t.amount, { sign: true }, 'pos') : t.type === 'transfer' ? `<span class="muted amt">${esc(money(t.amount))}</span>` : amt(-t.amount);
   return `<tr class="click" data-act="tx-edit" data-id="${t.id}">
+    <td class="cb"><input type="checkbox" onclick="event.stopPropagation()" data-change="tx-sel" data-id="${t.id}" ${ui.txSel.has(t.id) ? 'checked' : ''} aria-label="Select ${esc(t.desc)}"></td>
     <td class="nowrap muted hide-sm">${fmtDate(t.date)}</td>
     <td><div class="desc">${esc(t.desc)}</div>${sub ? `<div class="sub hide-sm">${esc(sub)}</div>` : ''}<div class="sub show-sm">${esc([fmtDate(t.date), t.type === 'transfer' ? 'Transfer' : c ? c.name : '', t.biz ? 'Business' : ''].filter(Boolean).join(' · '))}</div></td>
     <td class="hide-sm">${t.type === 'transfer' ? '<span class="badge">Transfer</span>' : UI.cat(c)}</td>
@@ -2150,8 +2227,13 @@ function txResultsHTML() {
   const shown = list.slice(0, ui.txLimit);
   const scopeLabel = ui.tx.scope === 'month' ? monthLabel(ui.month) : ui.tx.scope === 'year' ? ui.month.slice(0, 4) : 'All time';
   if (!list.length) return `<div class="card">${UI.empty('search', 'No matching transactions', `Nothing found for ${esc(scopeLabel)} with these filters.`, '<button class="btn sm" data-act="tx-clear">Clear filters</button>')}</div>`;
-  return `<div class="summary-strip"><span>${esc(scopeLabel)}</span><span><b>${list.length}</b> transactions</span><span>In <b class="amt">${esc(money(inc))}</b></span><span>Out <b class="amt">${esc(money(out))}</b></span><span>Net <b class="amt">${esc(money(inc - out, { sign: true }))}</b></span>${ded ? `<span>Deductible <b class="amt">${esc(money(ded))}</b></span>` : ''}<span class="spacer"></span><button class="btn sm ghost" data-act="csv-import">${icon('upload')}Import CSV</button><button class="btn sm ghost" data-act="tx-export">${icon('download')}Export</button></div>
-  <div class="card flush"><div class="table-wrap"><table class="table"><thead><tr><th class="hide-sm">Date</th><th>Description</th><th class="hide-sm">Category</th><th class="hide-md">Paid with</th><th class="hide-sm">Business</th><th class="num">Amount</th><th class="hide-sm"><span class="sr-only">Actions</span></th></tr></thead><tbody>${shown.map(txRow).join('')}</tbody></table></div>
+  const nSel = shown.filter((t) => ui.txSel.has(t.id)).length;
+  const allShownSelected = shown.length > 0 && nSel === shown.length;
+  const bulkBar = nSel
+    ? `<button class="btn sm ghost danger" data-act="tx-del-selected">${icon('trash')}Delete ${nSel} selected</button><button class="btn sm ghost" data-act="tx-select-toggle">Select none</button>`
+    : `<button class="btn sm ghost" data-act="csv-import">${icon('upload')}Import CSV</button><button class="btn sm ghost" data-act="tx-export">${icon('download')}Export</button>`;
+  return `<div class="summary-strip"><span>${esc(scopeLabel)}</span><span><b>${list.length}</b> transactions</span><span>In <b class="amt">${esc(money(inc))}</b></span><span>Out <b class="amt">${esc(money(out))}</b></span><span>Net <b class="amt">${esc(money(inc - out, { sign: true }))}</b></span>${ded ? `<span>Deductible <b class="amt">${esc(money(ded))}</b></span>` : ''}<span class="spacer"></span>${bulkBar}</div>
+  <div class="card flush"><div class="table-wrap"><table class="table"><thead><tr><th class="cb"><input type="checkbox" data-act="tx-select-toggle" ${allShownSelected ? 'checked' : ''} aria-label="Select all shown"></th><th class="hide-sm">Date</th><th>Description</th><th class="hide-sm">Category</th><th class="hide-md">Paid with</th><th class="hide-sm">Business</th><th class="num">Amount</th><th class="hide-sm"><span class="sr-only">Actions</span></th></tr></thead><tbody>${shown.map(txRow).join('')}</tbody></table></div>
   ${list.length > shown.length ? `<div class="show-more"><button class="btn sm" data-act="tx-more">Show ${Math.min(150, list.length - shown.length)} more of ${list.length - shown.length}</button></div>` : ''}</div>`;
 }
 VIEWS.transactions = {
@@ -2343,6 +2425,31 @@ ACT['rec-del'] = async (el) => { const r = byId(S.recurring, el.dataset.id); if 
    Payment methods
    ========================================================= */
 const PM_TYPES = { credit: 'Credit', debit: 'Debit', bank: 'Bank / ACH', cash: 'Cash', wallet: 'Digital wallet', other: 'Other' };
+
+// Shown in Settings under "What's new". Add a line here whenever something
+// user-visible changes — newest group first.
+const CHANGELOG = [
+  {
+    date: 'Sep 19, 2026',
+    items: [
+      'Prop firms page split into Overview, Evaluations, and Payouts tabs, plus automatic detection of ~20 known prop firms so their fees and payouts are tagged to your trading business without a manual toggle.',
+      '"Paid with" fills in automatically on bank-synced transactions — matched to an existing card by last 4 digits, or a new one added for you.',
+      'Bank-synced transactions now go straight into your books instead of the review inbox; the Import button became Refresh, re-syncing with Plaid on click.',
+      'Cash flow and Spending pace on the Dashboard gained longer timeframe options (3M/6M/1Y/2Y and Month/Quarter/Year).',
+      'Bulk select and delete on the Transactions screen, a Prop firm category, and transaction tags that reflect their real source (#csv, #bank file, #receipt, etc.) instead of a generic #imported.',
+      'Real transaction categories pulled from Plaid, a duplicate finder for the inbox, and a Disconnect button per connected bank on Bank Sync.',
+    ],
+  },
+  {
+    date: 'Sep 18, 2026',
+    items: [
+      'Bank Sync redesigned with a shared design system, real account balances, masked card numbers, and transactions grouped by day.',
+      'Accounts: sign up / log in, so each person\u2019s connected banks and ledger stay separate.',
+      'Ledger Vault Cloud moved off Claude and onto this same server, sharing one login with Bank Sync, including a live "Import from connected banks" bridge.',
+      'Bank Sync built from scratch: connect a bank via Plaid, live transaction sync, CSV export.',
+    ],
+  },
+];
 function nextDue(day) {
   if (!day) return null;
   const t = parseD(todayStr());
@@ -2497,9 +2604,14 @@ function resolveItem(it) {
       biz = { b: b.id, c: bc ? bc.id : '', pct: clamp(Number(it.pct ?? (bc ? bc.pct : 100)) || 100, 1, 100), firm: b.kind === 'trading' ? String(it.firm || '').slice(0, 60) : '' };
     }
   }
+  const desc = cleanDesc(it.desc || it.description || 'Imported');
+  if (!biz && type !== 'transfer') {
+    const pf = propFirmBizFor(desc, type);
+    if (pf) { biz = pf; if (!cat) { const wantName = type === 'income' ? 'Trading payouts' : 'Prop firm'; const c = byName(catsOfKind(type), wantName); if (c) cat = c.id; } }
+  }
   if (biz && type === 'expense' && !biz.c) { const other = bizCatsFor(biz.b).find((c) => /^other/i.test(c.name)); if (other) biz.c = other.id; }
   const date = validDate(it.date) ? it.date : todayStr();
-  return { type, cat, pm, biz, date, cents: itemCents(it), desc: cleanDesc(it.desc || it.description || 'Imported') };
+  return { type, cat, pm, biz, date, cents: itemCents(it), desc };
 }
 function applyRulesTo(item) {
   const rule = matchRule(item.desc);
@@ -2891,10 +3003,10 @@ VIEWS.import = {
       ['list', 'CSV · OFX · QFX', 'Bank downloads (“Download for Quicken” works). No AI needed.', true],
     ];
     return `<section class="card banksync-import s12" style="margin-bottom:18px">
-        <header class="card-h"><div><h3>${icon('landmark')}Connected banks</h3><p class="card-sub">Pulls live from the accounts you've linked in Bank Sync — no file to download or upload.</p></div></header>
+        <header class="card-h"><div><h3>${icon('landmark')}Connected banks</h3><p class="card-sub">Transactions sync straight into your books — no review step. Refresh anytime to pull in anything new.</p></div></header>
         <div class="row wrap">
-          <button class="btn accent" data-act="imp-banksync">${icon('upload')}Import from connected banks</button>
-          <a class="btn ghost" href="/" target="_blank" rel="noopener">Open Bank Sync</a>
+          <button class="btn accent" data-act="imp-banksync">${icon('refresh')}Refresh from connected banks</button>
+          <a class="btn ghost" href="/">Open Bank Sync</a>
         </div>
       </section>
       <div class="grid import-top">
@@ -3054,13 +3166,96 @@ ACT['find-dupes'] = () => {
   });
 };
 
+// Adds bank-synced rows straight into approved transactions (no inbox
+// review step) — trusted structured data from Plaid, unlike CSV/OFX/AI
+// extraction which still go through the inbox. Dedupes by fitid (Plaid's
+// own transaction id) plus the same fuzzy date+amount+description check
+// (findDuplicate) the rest of the app already uses, so re-running this
+// never double-books something already in the ledger.
+// Adds bank-synced rows straight into approved transactions (no inbox
+// review step) — trusted structured data from Plaid, unlike CSV/OFX/AI
+// extraction which still go through the inbox. Dedupes by fitid (Plaid's
+// own transaction id) plus the same fuzzy date+amount+description check
+// (findDuplicate) the rest of the app already uses, so re-running this
+// never double-books something already in the ledger.
+// `accounts` (from /api/accounts) is used to fill in Paid with — matched
+// to an existing card by last-4 the same way the rest of the app already
+// matches cards (pmByLast4), auto-adding a card if none matches yet.
+function addBankTransactionsDirect(rows, accounts) {
+  const acctToPm = {};
+  const newPMs = [];
+  for (const a of accounts || []) {
+    if (!a.mask) continue;
+    let pm = pmByLast4(a.mask) || newPMs.find((p) => p.last4 === a.mask);
+    if (!pm) {
+      const type = a.type === 'credit' ? 'credit' : a.type === 'depository' ? 'debit' : 'other';
+      pm = {
+        id: uid(), name: `${a.institution_name || 'Bank'} ${a.name || ''}`.trim().slice(0, 40) || 'Card',
+        type, issuer: a.institution_name || '', last4: a.mask,
+        color: (S.paymentMethods.length + newPMs.length) % 8, dueDay: '', archived: false,
+      };
+      newPMs.push(pm);
+    }
+    acctToPm[a.account_id] = pm.id;
+  }
+
+  const existingFitids = new Set(S.transactions.filter((t) => t.fitid).map((t) => t.fitid));
+  const toAdd = [];
+  let dupes = 0, skipped = 0;
+  for (const r of rows) {
+    if (!validDate(r.date) || !(r.amount > 0)) { skipped++; continue; }
+    if (r.fitid && existingFitids.has(r.fitid)) { dupes++; continue; }
+    const cents = Math.round(r.amount * 100);
+    const batchDup = toAdd.some((x) => x.amount === cents && Math.abs(daysBetween(x.date, r.date)) <= 3 && (x.date === r.date || similarDesc(x.desc, r.desc)));
+    if (batchDup || findDuplicate(r.date, cents, r.desc)) { dupes++; continue; }
+
+    const isTransfer = r.type === 'transfer';
+    const type = isTransfer ? 'transfer' : (r.direction === 'in' ? 'income' : 'expense');
+    const desc = cleanDesc(r.desc);
+    let cat = '', biz = null;
+    if (!isTransfer) {
+      const rule = matchRule(desc);
+      if (rule) {
+        const rc = catOf(rule.cat);
+        if (rc && rc.kind === type) cat = rule.cat;
+        if (rule.biz) biz = { ...rule.biz };
+      }
+      if (!biz) {
+        const pf = propFirmBizFor(desc, type);
+        if (pf) {
+          biz = pf;
+          if (!cat) { const wantName = type === 'income' ? 'Trading payouts' : 'Prop firm'; const c = byName(catsOfKind(type), wantName); if (c) cat = c.id; }
+        }
+      }
+      if (!cat && r.category) { const c = byName(catsOfKind(type), r.category); if (c) cat = c.id; }
+      if (!cat) cat = fallbackCat(type);
+    }
+    toAdd.push({
+      id: uid(), created: Date.now() + toAdd.length, date: r.date, type, amount: cents,
+      desc, cat, pm: acctToPm[r.accountId] || '', notes: '', tags: ['bank sync'], biz,
+      ...(r.fitid ? { fitid: r.fitid } : {}),
+    });
+  }
+  if (toAdd.length || newPMs.length) {
+    commit(() => {
+      if (newPMs.length) S.paymentMethods.push(...newPMs);
+      if (toAdd.length) S.transactions.push(...toAdd);
+    });
+  }
+  return { added: toAdd.length, dupes, skipped, newCards: newPMs.length };
+}
+
 ACT['imp-banksync'] = async () => {
-  const job = newJob('Checking connected banks', 'banksync');
+  const job = newJob('Refreshing connected banks', 'banksync');
   try {
-    const res = await fetch('/api/transactions');
-    if (res.status === 401) { window.location.href = '/login.html'; return; }
-    if (!res.ok) throw new Error(`Bank Sync returned ${res.status}`);
-    const list = await res.json();
+    const sync = await fetch('/api/sync', { method: 'POST' });
+    if (sync.status === 401) { window.location.href = '/login.html'; return; }
+    if (!sync.ok) throw new Error(`Bank Sync returned ${sync.status}`);
+
+    const [txRes, acctRes] = await Promise.all([fetch('/api/transactions'), fetch('/api/accounts')]);
+    if (!txRes.ok) throw new Error(`Bank Sync returned ${txRes.status}`);
+    const list = await txRes.json();
+    const accounts = acctRes.ok ? await acctRes.json() : [];
     const rows = list
       .filter((t) => !t.pending)
       .map((t) => ({
@@ -3069,16 +3264,20 @@ ACT['imp-banksync'] = async () => {
         amount: Math.abs(t.amount),
         direction: t.amount > 0 ? 'out' : 'in', // Plaid: positive = money out
         fitid: 'plaid-' + t.transaction_id,
+        accountId: t.account_id,
         ...categorizeFromPFC(t.personal_finance_category),
       }));
     if (!rows.length) {
       jobUpdate(job, { status: 'done', ended: Date.now(), msg: 'No connected-bank transactions found yet' });
-      toast('No transactions yet — connect a bank in Bank Sync first, or hit Sync there.');
+      toast('No transactions yet — connect a bank in Bank Sync first.');
       return;
     }
-    const out = addToInbox(rows, { source: 'banksync' });
-    finishJob(job, out);
-    toast(`${plural(out.added, 'transaction')} added to your inbox${out.dups ? ` · ${out.dups} already there` : ''}`);
+    const out = addBankTransactionsDirect(rows, accounts);
+    const parts = [`${plural(out.added, 'transaction')} added`];
+    if (out.dupes) parts.push(`${out.dupes} already up to date`);
+    if (out.newCards) parts.push(`${plural(out.newCards, 'card')} added`);
+    jobUpdate(job, { status: 'done', ended: Date.now(), msg: parts.join(' · ') });
+    toast(out.added ? `${plural(out.added, 'new transaction')} added to your books` : 'Already up to date — nothing new.');
   } catch (e) {
     console.error(e);
     failJob(job, e);
@@ -3100,7 +3299,8 @@ function itemToTx(it, i = 0) {
   const r = resolveItem(it);
   const cat = r.type === 'transfer' ? '' : r.cat || fallbackCat(r.type);
   const biz = r.biz ? { ...r.biz, receipt: !!(it.receiptId || r.biz.receipt), rnote: it.receiptId ? 'Photo stored in Ledger Vault' : (r.biz.rnote || '') } : null;
-  return { id: uid(), created: Date.now() + i, date: r.date, type: r.type, amount: r.cents, desc: r.desc, cat, pm: r.pm, notes: it.notes ? cleanDesc(it.notes) : '', tags: ['imported'], biz, ...(it.fitid ? { fitid: it.fitid } : {}), ...(it.receiptId ? { receiptId: it.receiptId } : {}) };
+  const sourceTag = (SOURCE_LABEL[it.source] || 'Imported').toLowerCase();
+  return { id: uid(), created: Date.now() + i, date: r.date, type: r.type, amount: r.cents, desc: r.desc, cat, pm: r.pm, notes: it.notes ? cleanDesc(it.notes) : '', tags: [sourceTag], biz, ...(it.fitid ? { fitid: it.fitid } : {}), ...(it.receiptId ? { receiptId: it.receiptId } : {}) };
 }
 ACT['inbox-approve'] = () => {
   const on = S.inbox.filter((i) => !i.skip);
@@ -3367,53 +3567,110 @@ function mileageCSV(trips) {
 }
 
 /* ---------- Prop firms ---------- */
+function propFirmEvalTxs(year) {
+  const tradingIds = new Set(S.businesses.filter((b) => b.kind === 'trading').map((b) => b.id));
+  return sortTx(S.transactions.filter((t) => t.type === 'expense' && t.biz && tradingIds.has(t.biz.b) && t.biz.firm && (year === 'all' || t.date.startsWith(year))));
+}
+function propFirmPayoutTxs(year) {
+  const tradingIds = new Set(S.businesses.filter((b) => b.kind === 'trading').map((b) => b.id));
+  return sortTx(S.transactions.filter((t) => t.type === 'income' && t.biz && tradingIds.has(t.biz.b) && t.biz.firm && (year === 'all' || t.date.startsWith(year))));
+}
+function propFirmOverviewHTML(firms, fy) {
+  const spent = sum(firms, (f) => f.spent), paid = sum(firms, (f) => f.payouts), evals = sum(firms, (f) => f.evals), resets = sum(firms, (f) => f.resets);
+  const net = paid - spent;
+  const stats = `<div class="stats">
+    ${UI.stat('Paid to firms', amt(spent), { sub: 'Evals, resets, activation, data' })}
+    ${UI.stat('Payouts received', amt(paid), { sub: plural(sum(firms, (f) => f.payoutCount), 'payout') })}
+    ${UI.stat('Net', amt(net, { sign: true }, net < 0 ? 'neg' : 'pos'), { sub: spent ? `ROI ${pct(net / spent)}` : '' })}
+    ${UI.stat('Evaluations bought', `${evals}`, { sub: `${plural(resets, 'reset')} · ${spent && evals ? `<span class="amt">${esc(money(Math.round(spent / Math.max(1, evals))))}</span> all-in per eval` : ''}` })}
+  </div>`;
+  const top = firms.slice().sort((a, b) => (b.spent + b.payouts) - (a.spent + a.payouts)).slice(0, 8);
+  const chart = UI.card('Paid vs payouts by firm', legend([['Paid to firm', 'var(--c1)'], ['Payouts', 'var(--c0)']]) + chartSlot(columnsChart({ labels: top.map((f) => f.name.length > 12 ? f.name.slice(0, 11) + '…' : f.name), series: [{ name: 'Paid', color: 'var(--c1)', values: top.map((f) => f.spent) }, { name: 'Payouts', color: 'var(--c0)', values: top.map((f) => f.payouts) }], tipTitle: (i) => top[i].name, extraTip: (i) => [tipRow('Net', money(top[i].net, { sign: true }))] }), 240), { cls: 's7' });
+  const y = fy === 'all' ? null : fy;
+  const tradingIds = new Set(S.businesses.filter((b) => b.kind === 'trading').map((b) => b.id));
+  const tTx = S.transactions.filter((t) => t.biz && tradingIds.has(t.biz.b) && (!y || t.date.startsWith(y)));
+  const allIn = sum(tTx.filter((t) => t.type === 'income'), (t) => t.amount);
+  const firmFees = sum(tTx.filter((t) => t.type === 'expense' && t.biz.firm), (t) => t.amount);
+  const other = sum(tTx.filter((t) => t.type === 'expense' && !t.biz.firm), (t) => t.amount);
+  const pnl = allIn - firmFees - other;
+  const pnlCard = `<section class="card s5"><header class="card-h"><div><h3>All-in trading P&L</h3><p class="card-sub">${y ? esc(y) : 'All time'} · includes software, courses, equipment</p></div></header>
+    <div class="list">
+      <div class="list-item"><div class="li-main"><div class="li-title">Payouts</div></div><div class="li-amt amt pos">${esc(money(allIn, { sign: true }))}</div></div>
+      <div class="list-item"><div class="li-main"><div class="li-title">Firm fees</div><div class="li-sub">Tagged with a firm</div></div><div class="li-amt amt">${esc(money(-firmFees))}</div></div>
+      <div class="list-item"><div class="li-main"><div class="li-title">Other trading costs</div><div class="li-sub">Software, courses, equipment, data without a firm</div></div><div class="li-amt amt">${esc(money(-other))}</div></div>
+      <div class="list-item"><div class="li-main"><div class="li-title" style="font-size:15px">Net</div></div><div class="li-amt amt ${pnl < 0 ? 'neg' : 'pos'}" style="font-size:18px">${esc(money(pnl, { sign: true }))}</div></div>
+    </div></section>`;
+  const table = `<section class="card flush s12"><header class="card-h" style="padding:16px 18px 6px"><div><h3>Firms</h3></div></header><div class="table-wrap"><table class="table"><thead><tr><th>Firm</th><th class="num">Evals</th><th class="num hide-sm">Resets</th><th class="num">Paid</th><th class="num">Payouts</th><th class="num">Net</th><th class="num hide-sm">ROI</th><th class="hide-md">Last activity</th></tr></thead><tbody>
+    ${firms.map((f) => `<tr class="click" data-act="firm-open" data-firm="${esc(f.name)}"><td><b style="font-weight:550">${esc(f.name)}</b></td><td class="num">${f.evals}</td><td class="num hide-sm">${f.resets}</td><td class="num">${amt(f.spent)}</td><td class="num">${amt(f.payouts)}</td><td class="num">${amt(f.net, { sign: true }, f.net < 0 ? 'neg' : 'pos')}</td><td class="num hide-sm">${f.roi == null ? '—' : pct(f.roi)}</td><td class="hide-md muted">${fmtDate(f.last)}</td></tr>`).join('')}
+    </tbody><tfoot><tr><td>Total</td><td class="num">${evals}</td><td class="num hide-sm">${resets}</td><td class="num">${amt(spent)}</td><td class="num">${amt(paid)}</td><td class="num">${amt(net, { sign: true }, net < 0 ? 'neg' : 'pos')}</td><td class="num hide-sm">${spent ? pct(net / spent) : '—'}</td><td class="hide-md"></td></tr></tfoot></table></div></section>`;
+  return `${stats}<div class="grid">${chart}${pnlCard}${table}</div>`;
+}
+function propFirmEvalsHTML(firms, fy) {
+  const evalTx = propFirmEvalTxs(fy);
+  if (!evalTx.length) return `<div class="card">${UI.empty('receipt', 'No evaluations logged yet', 'Evaluation and reset fees you pay a prop firm show up here, broken out by firm.', '<button class="btn primary sm" data-act="firm-log" data-kind="eval">Log an evaluation</button>')}</div>`;
+  const spent = sum(firms, (f) => f.spent), evals = sum(firms, (f) => f.evals), resets = sum(firms, (f) => f.resets);
+  const stats = `<div class="stats">
+    ${UI.stat('Spent on fees', amt(spent), { sub: 'Evals, resets, activation, data' })}
+    ${UI.stat('Evaluations bought', `${evals}`, {})}
+    ${UI.stat('Resets', `${resets}`, {})}
+    ${UI.stat('Avg cost per eval', evals ? amt(Math.round(spent / Math.max(1, evals + resets))) : '—', { sub: 'Across evals + resets' })}
+  </div>`;
+  const byFirm = firms.filter((f) => f.spent > 0).sort((a, b) => b.spent - a.spent);
+  const chart = UI.card('Fees paid by firm', chartSlot(columnsChart({ labels: byFirm.slice(0, 8).map((f) => f.name.length > 12 ? f.name.slice(0, 11) + '…' : f.name), series: [{ name: 'Spent', color: 'var(--c1)', values: byFirm.slice(0, 8).map((f) => f.spent) }], tipTitle: (i) => byFirm[i].name }), 220), { cls: 's7' });
+  const table = `<section class="card flush s5"><header class="card-h" style="padding:16px 18px 6px"><div><h3>By firm</h3></div></header><div class="table-wrap"><table class="table"><thead><tr><th>Firm</th><th class="num">Evals</th><th class="num hide-sm">Resets</th><th class="num">Spent</th><th class="hide-sm">Last</th></tr></thead><tbody>
+    ${byFirm.map((f) => `<tr class="click" data-act="firm-open" data-firm="${esc(f.name)}"><td><b style="font-weight:550">${esc(f.name)}</b></td><td class="num">${f.evals}</td><td class="num hide-sm">${f.resets}</td><td class="num">${amt(f.spent)}</td><td class="hide-sm muted">${fmtDate(f.last)}</td></tr>`).join('')}
+    </tbody></table></div></section>`;
+  const recent = `<section class="card s12"><header class="card-h"><div><h3>Recent evaluations & resets</h3></div></header><div class="list">${evalTx.slice(0, 10).map(txListItem).join('')}</div></section>`;
+  return `${stats}<div class="grid">${chart}${table}${recent}</div>`;
+}
+function propFirmPayoutsHTML(firms, fy) {
+  const payoutTx = propFirmPayoutTxs(fy);
+  if (!payoutTx.length) return `<div class="card">${UI.empty('trend', 'No payouts logged yet', 'Payouts a prop firm sends you show up here, broken out by firm.', '<button class="btn primary sm" data-act="firm-log" data-kind="payout">Log a payout</button>')}</div>`;
+  const paid = sum(firms, (f) => f.payouts), count = sum(firms, (f) => f.payoutCount);
+  const firmsPaid = firms.filter((f) => f.payoutCount > 0).length;
+  const stats = `<div class="stats">
+    ${UI.stat('Total payouts', amt(paid), {})}
+    ${UI.stat('Payout count', `${count}`, {})}
+    ${UI.stat('Avg payout', count ? amt(Math.round(paid / count)) : '—', {})}
+    ${UI.stat('Firms paid', `${firmsPaid}`, {})}
+  </div>`;
+  const monthsForChart = fy === 'all' ? Array.from({ length: 12 }, (_, i) => addMonths(curMonth(), i - 11)) : Array.from({ length: 12 }, (_, i) => `${fy}-${pad(i + 1)}`);
+  const byMonth = new Map();
+  for (const t of payoutTx) { const k = t.date.slice(0, 7); byMonth.set(k, (byMonth.get(k) || 0) + t.amount); }
+  const chart = UI.card('Payouts by month', chartSlot(columnsChart({ labels: monthsForChart.map(monthShort), series: [{ name: 'Payouts', color: 'var(--c0)', values: monthsForChart.map((m) => byMonth.get(m) || 0) }], tipTitle: (i) => monthLabel(monthsForChart[i]) }), 220), { cls: 's7', sub: fy === 'all' ? 'Last 12 months' : fy });
+  const byFirm = firms.filter((f) => f.payoutCount > 0).sort((a, b) => b.payouts - a.payouts);
+  const table = `<section class="card flush s5"><header class="card-h" style="padding:16px 18px 6px"><div><h3>By firm</h3></div></header><div class="table-wrap"><table class="table"><thead><tr><th>Firm</th><th class="num">Payouts</th><th class="num">Total</th><th class="hide-sm">Last</th></tr></thead><tbody>
+    ${byFirm.map((f) => `<tr class="click" data-act="firm-open" data-firm="${esc(f.name)}"><td><b style="font-weight:550">${esc(f.name)}</b></td><td class="num">${f.payoutCount}</td><td class="num">${amt(f.payouts)}</td><td class="hide-sm muted">${fmtDate(f.last)}</td></tr>`).join('')}
+    </tbody></table></div></section>`;
+  const recent = `<section class="card s12"><header class="card-h"><div><h3>Recent payouts</h3></div></header><div class="list">${payoutTx.slice(0, 10).map(txListItem).join('')}</div></section>`;
+  return `${stats}<div class="grid">${chart}${table}${recent}</div>`;
+}
 VIEWS.propfirms = {
   title: 'Prop firms',
   render() {
     const years = yearsWithData();
     const fy = ui.firmYear;
     const firms = propFirmStats(fy);
-    const tabs = `<div class="pill-tabs"><button class="${fy === 'all' ? 'on' : ''}" data-act="firmyear" data-y="all">All time</button>${years.map((y) => `<button class="${fy === y ? 'on' : ''}" data-act="firmyear" data-y="${y}">${y}</button>`).join('')}</div>`;
-    const toolbar = `<div class="toolbar">${tabs}<span class="spacer"></span><button class="btn sm" data-act="firm-log" data-kind="eval">${icon('plus')}Log evaluation</button><button class="btn sm primary" data-act="firm-log" data-kind="payout">${icon('plus')}Log payout</button></div>`;
-    if (!firms.length) return `${toolbar}<div class="card">${UI.empty('trophy', 'Is prop trading paying off?', 'Log evaluation fees, resets, activation and data fees, plus payouts, with the firm name. You get ROI per firm, and every fee is already tagged as a write-off.', '<button class="btn primary sm" data-act="firm-log" data-kind="eval">Log an evaluation</button><button class="btn sm" data-act="firm-log" data-kind="payout">Log a payout</button>')}</div>`;
-    const spent = sum(firms, (f) => f.spent), paid = sum(firms, (f) => f.payouts), evals = sum(firms, (f) => f.evals), resets = sum(firms, (f) => f.resets);
-    const net = paid - spent;
-    const stats = `<div class="stats">
-      ${UI.stat('Paid to firms', amt(spent), { sub: 'Evals, resets, activation, data' })}
-      ${UI.stat('Payouts received', amt(paid), { sub: plural(sum(firms, (f) => f.payoutCount), 'payout') })}
-      ${UI.stat('Net', amt(net, { sign: true }, net < 0 ? 'neg' : 'pos'), { sub: spent ? `ROI ${pct(net / spent)}` : '' })}
-      ${UI.stat('Evaluations bought', `${evals}`, { sub: `${plural(resets, 'reset')} · ${spent && evals ? `<span class="amt">${esc(money(Math.round(spent / Math.max(1, evals))))}</span> all-in per eval` : ''}` })}
+    const sectionTabs = `<div class="pill-tabs" style="margin-bottom:10px">
+      <button class="${ui.firmTab === 'overview' ? 'on' : ''}" data-act="firmtab" data-t="overview">${icon('dashboard')}Overview</button>
+      <button class="${ui.firmTab === 'evals' ? 'on' : ''}" data-act="firmtab" data-t="evals">${icon('receipt')}Evaluations</button>
+      <button class="${ui.firmTab === 'payouts' ? 'on' : ''}" data-act="firmtab" data-t="payouts">${icon('trend')}Payouts</button>
     </div>`;
-    const top = firms.slice().sort((a, b) => (b.spent + b.payouts) - (a.spent + a.payouts)).slice(0, 8);
-    const chart = UI.card('Paid vs payouts by firm', legend([['Paid to firm', 'var(--c1)'], ['Payouts', 'var(--c0)']]) + chartSlot(columnsChart({ labels: top.map((f) => f.name.length > 12 ? f.name.slice(0, 11) + '…' : f.name), series: [{ name: 'Paid', color: 'var(--c1)', values: top.map((f) => f.spent) }, { name: 'Payouts', color: 'var(--c0)', values: top.map((f) => f.payouts) }], tipTitle: (i) => top[i].name, extraTip: (i) => [tipRow('Net', money(top[i].net, { sign: true }))] }), 240), { cls: 's7' });
-    // all-in P&L for trading businesses
-    const y = fy === 'all' ? null : fy;
-    const tradingIds = new Set(S.businesses.filter((b) => b.kind === 'trading').map((b) => b.id));
-    const tTx = S.transactions.filter((t) => t.biz && tradingIds.has(t.biz.b) && (!y || t.date.startsWith(y)));
-    const allIn = sum(tTx.filter((t) => t.type === 'income'), (t) => t.amount);
-    const firmFees = sum(tTx.filter((t) => t.type === 'expense' && t.biz.firm), (t) => t.amount);
-    const other = sum(tTx.filter((t) => t.type === 'expense' && !t.biz.firm), (t) => t.amount);
-    const pnl = allIn - firmFees - other;
-    const pnlCard = `<section class="card s5"><header class="card-h"><div><h3>All-in trading P&L</h3><p class="card-sub">${y ? esc(y) : 'All time'} · includes software, courses, equipment</p></div></header>
-      <div class="list">
-        <div class="list-item"><div class="li-main"><div class="li-title">Payouts</div></div><div class="li-amt amt pos">${esc(money(allIn, { sign: true }))}</div></div>
-        <div class="list-item"><div class="li-main"><div class="li-title">Firm fees</div><div class="li-sub">Tagged with a firm</div></div><div class="li-amt amt">${esc(money(-firmFees))}</div></div>
-        <div class="list-item"><div class="li-main"><div class="li-title">Other trading costs</div><div class="li-sub">Software, courses, equipment, data without a firm</div></div><div class="li-amt amt">${esc(money(-other))}</div></div>
-        <div class="list-item"><div class="li-main"><div class="li-title" style="font-size:15px">Net</div></div><div class="li-amt amt ${pnl < 0 ? 'neg' : 'pos'}" style="font-size:18px">${esc(money(pnl, { sign: true }))}</div></div>
-      </div></section>`;
-    const table = `<section class="card flush s12"><header class="card-h" style="padding:16px 18px 6px"><div><h3>Firms</h3></div></header><div class="table-wrap"><table class="table"><thead><tr><th>Firm</th><th class="num">Evals</th><th class="num hide-sm">Resets</th><th class="num">Paid</th><th class="num">Payouts</th><th class="num">Net</th><th class="num hide-sm">ROI</th><th class="hide-md">Last activity</th></tr></thead><tbody>
-      ${firms.map((f) => `<tr class="click" data-act="firm-open" data-firm="${esc(f.name)}"><td><b style="font-weight:550">${esc(f.name)}</b></td><td class="num">${f.evals}</td><td class="num hide-sm">${f.resets}</td><td class="num">${amt(f.spent)}</td><td class="num">${amt(f.payouts)}</td><td class="num">${amt(f.net, { sign: true }, f.net < 0 ? 'neg' : 'pos')}</td><td class="num hide-sm">${f.roi == null ? '—' : pct(f.roi)}</td><td class="hide-md muted">${fmtDate(f.last)}</td></tr>`).join('')}
-      </tbody><tfoot><tr><td>Total</td><td class="num">${evals}</td><td class="num hide-sm">${resets}</td><td class="num">${amt(spent)}</td><td class="num">${amt(paid)}</td><td class="num">${amt(net, { sign: true }, net < 0 ? 'neg' : 'pos')}</td><td class="num hide-sm">${spent ? pct(net / spent) : '—'}</td><td class="hide-md"></td></tr></tfoot></table></div></section>`;
-    return `${toolbar}${stats}<div class="grid">${chart}${pnlCard}${table}</div>`;
+    const yearTabs = `<div class="pill-tabs"><button class="${fy === 'all' ? 'on' : ''}" data-act="firmyear" data-y="all">All time</button>${years.map((y) => `<button class="${fy === y ? 'on' : ''}" data-act="firmyear" data-y="${y}">${y}</button>`).join('')}</div>`;
+    const toolbar = `${sectionTabs}<div class="toolbar">${yearTabs}<span class="spacer"></span><button class="btn sm" data-act="firm-log" data-kind="eval">${icon('plus')}Log evaluation</button><button class="btn sm primary" data-act="firm-log" data-kind="payout">${icon('plus')}Log payout</button></div>`;
+    if (!firms.length) return `${toolbar}<div class="card">${UI.empty('trophy', 'Is prop trading paying off?', 'Log evaluation fees, resets, activation and data fees, plus payouts, with the firm name. You get ROI per firm, and every fee is already tagged as a write-off. Bank-synced transactions from known prop firms are tagged automatically.', '<button class="btn primary sm" data-act="firm-log" data-kind="eval">Log an evaluation</button><button class="btn sm" data-act="firm-log" data-kind="payout">Log a payout</button>')}</div>`;
+    const body = ui.firmTab === 'evals' ? propFirmEvalsHTML(firms, fy) : ui.firmTab === 'payouts' ? propFirmPayoutsHTML(firms, fy) : propFirmOverviewHTML(firms, fy);
+    return `${toolbar}${body}`;
   },
 };
 ACT.firmyear = (el) => { ui.firmYear = el.dataset.y; render(); };
+ACT.firmtab = (el) => { ui.firmTab = el.dataset.t; render(); };
 ACT['firm-open'] = (el) => { ui.tx = { q: el.dataset.firm, scope: 'all', type: '', cat: '', pm: '', biz: 'business', receipt: '' }; go('transactions'); };
 ACT['firm-log'] = (el) => {
   const b = S.businesses.find((x) => x.kind === 'trading');
   if (!b) { toast('Add a business with type “Trading” in Settings first', 'err'); return; }
   const payout = el.dataset.kind === 'payout';
-  const cat = payout ? S.categories.find((c) => c.kind === 'income' && /trading|payout/i.test(c.name)) : S.categories.find((c) => c.kind === 'expense' && /trading/i.test(c.name));
+  const cat = payout ? S.categories.find((c) => c.kind === 'income' && /trading|payout/i.test(c.name)) : S.categories.find((c) => c.kind === 'expense' && /prop firm|trading/i.test(c.name));
   const bc = S.bizCats.find((c) => c.key === 'eval');
   txModal(null, { type: payout ? 'income' : 'expense', cat: cat ? cat.id : '', desc: payout ? 'Payout' : '', biz: { b: b.id, c: payout ? '' : bc ? bc.id : '', pct: 100, firm: '', receipt: false } });
 };
@@ -3742,8 +3999,9 @@ VIEWS.settings = {
     const rates = (st.mileageRates || []).slice().sort((a, b) => (a.from < b.from ? 1 : -1));
     const mileage = UI.card('Mileage rates', `<div class="list">${rates.map((r) => `<div class="list-item"><div class="li-main"><div class="li-title">${esc(r.rate)}¢ per mile</div><div class="li-sub">From ${esc(fmtDate(r.from, { year: true }))}</div></div><button class="btn ghost icon-btn sm" data-act="rate-del" data-id="${r.id}" aria-label="Delete rate">${icon('trash')}</button></div>`).join('')}</div><p class="note" style="margin-top:10px">${icon('info')}<span>IRS business rate: 72.5¢ (Jan to Jun 2026), 76¢ from Jul 1, 2026. Add new rates when the IRS announces them.</span></p>`, { cls: 's6', actions: `<button class="btn sm" data-act="rate-add">${icon('plus')}Rate</button>` });
     const keys = UI.card('Keyboard shortcuts', `<div class="kbd-list"><span class="kbd">N</span><span>New transaction</span><span class="kbd">/</span><span>Search transactions</span><span class="kbd">H</span><span>Hide / show amounts</span><span class="kbd">L</span><span>Lock</span><span class="kbd">← →</span><span>Previous / next month</span><span class="kbd">Esc</span><span>Close dialog</span></div>`, { cls: 's6' });
+    const changelog = UI.card("What's new", `<div class="changelog">${CHANGELOG.map((g) => `<div><div class="cl-date">${esc(g.date)}</div><ul class="cl-items">${g.items.map((it) => `<li>${esc(it)}</li>`).join('')}</ul></div>`).join('')}</div>`, { cls: 's12' });
     const danger = UI.card('Danger zone', `<div class="set-row"><div><div class="sr-t">Erase vault from this browser</div><div class="sr-d">Deletes the encrypted data here. Backups you downloaded are not affected.</div></div><button class="btn sm danger solid" data-act="erase">Erase</button></div>`, { cls: 's6 danger-zone' });
-    return `<div class="set-grid">${privacy}${data}${appearance}${chat}</div><div class="grid" style="margin-top:16px">${categories}${business}${rules}${mileage}${keys}${danger}</div>`;
+    return `<div class="set-grid">${privacy}${data}${appearance}${chat}</div><div class="grid" style="margin-top:16px">${categories}${business}${rules}${mileage}${changelog}${keys}${danger}</div>`;
   },
 };
 

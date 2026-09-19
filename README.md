@@ -36,11 +36,22 @@ accounts, not just everything added together), and transactions grouped by
 day the way an actual banking app shows them.
 
 **Auto-categorization:** every sync now requests Plaid's real transaction
-categories (the personal_finance_category taxonomy) and the Ledger import
+categories (the personal_finance_category taxonomy) and the Ledger side
 maps them onto your own category list — groceries, gas, streaming
 subscriptions, payroll, etc. land pre-categorized instead of defaulting to
 "Other." Credit card payments and account transfers are correctly tagged as
 transfers rather than miscategorized as spending.
+
+**Bank-synced transactions go straight into your books — no review step.**
+Unlike CSV/OFX/AI-extracted imports (which still land in the inbox for you
+to check first, since those are less certain), Plaid-sourced data is
+trusted enough to commit directly. The **Refresh from connected banks**
+button on the Import screen re-syncs with Plaid and adds anything new
+straight to Transactions; running it again is safe — it dedupes by Plaid's
+own transaction id plus the same fuzzy match the rest of the app uses, so
+nothing gets double-booked. **Paid with** is filled in automatically too —
+matched to an existing card by its last 4 digits, or a new card is added
+for you (named after the institution and account) if none matches yet.
 
 **Duplicate handling:** each connected bank shows its connection date, so
 accidentally-duplicated connections (e.g. linking the same bank twice) are
@@ -54,6 +65,48 @@ inbox item or something you already approved) for one-click cleanup.
 1Y / 2Y range toggle (previously fixed at 6 months), and Spending pace can
 compare Month / Quarter / Year, not just the current month against last
 month. Both choices are remembered across visits.
+
+**Bulk-delete transactions:** the Transactions screen now has checkboxes
+per row (and a select-all in the header) with a **Delete N selected**
+button, instead of removing rows one at a time. Undo works the same as a
+single delete.
+
+**Clearing everything out:** this already existed — Settings & privacy →
+**Start fresh** → **Reset data** wipes transactions, cards, budgets,
+holdings, goals, trips, and the inbox back to defaults (type RESET to
+confirm). Worth knowing it's there rather than deleting by hand.
+
+**More specific tags:** approved transactions used to all say `#imported`
+regardless of where they came from. Now they're tagged by actual source —
+`#csv`, `#bank file` (OFX), `#receipt`, `#screenshot`, etc. — so you can
+tell them apart later. This only affects newly-approved transactions;
+anything already in your books keeps its existing tag.
+
+**Prop firm category:** added to the default expense categories. New
+accounts (and anyone who resets) get it automatically; to add it to an
+account that already has its own category list, use the **+ Expense
+category** button under Settings & privacy → Categories (or Budgets).
+
+**Prop firm auto-detection:** transactions from ~20 known prop firms (Apex
+Trader Funding, Topstep, FTMO, MyFundedFutures, and others) are recognized
+by name and automatically tagged to your trading business — no manual
+"Business expense" toggle needed. Expenses land as evaluation/reset fees,
+income lands as a payout, both correctly attributed to the firm. This
+applies to bank-synced transactions and CSV/OFX/receipt imports alike. A
+user-taught rule (if you've corrected that merchant before) always takes
+priority over the auto-detection.
+
+**Prop firms page restructured:** now three tabs — **Overview** (the
+original combined view: stats, paid-vs-payouts chart, all-in P&L, firms
+table), **Evaluations** (fees-only: spent, evals bought, resets, cost per
+eval, by firm, recent activity), and **Payouts** (received-only: total,
+count, average, by month, by firm, recent activity) — instead of one mixed
+table.
+
+**What's new:** Settings & privacy now has a changelog card near the
+bottom, grouped by date, newest first. It's a hardcoded list in the code
+(search for `CHANGELOG` in `public/ledger/index.html`) — future updates
+need a new entry added there to show up.
 
 ## 1. Get Plaid API keys (free, instant)
 
