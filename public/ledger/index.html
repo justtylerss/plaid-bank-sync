@@ -555,6 +555,53 @@ tr:hover .row-actions, .row-actions:focus-within { opacity: 1; }
   .cal-pill { font-size: 10px; }
 }
 
+/* ============ Reports ============ */
+.rep-list { display: grid; gap: 8px; }
+.rep-row { display: grid; grid-template-columns: minmax(84px, 22%) 1fr auto auto; gap: 10px;
+  align-items: center; font-size: 13px; }
+.rep-k { color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rep-bar { background: var(--surface-3); border-radius: 999px; height: 10px; overflow: hidden; }
+.rep-bar i { display: block; height: 100%; background: var(--accent); border-radius: 999px; }
+.rep-v { font-weight: 600; }
+.rep-n { min-width: 24px; text-align: right; }
+
+/* ============ Number hierarchy ============
+   One scale for figures, so a headline number is the same size wherever it
+   appears. Before this each card invented its own, which is the main reason a
+   page of cards can look assembled rather than designed. */
+.stat-lg { font-size: 22px; font-weight: 650; letter-spacing: -.02em; line-height: 1.2; }
+.stat-md { font-size: 17px; font-weight: 600; letter-spacing: -.01em; }
+
+/* ============ Density ============
+   680 transactions is a lot of scrolling at comfortable spacing. Compact is
+   for people who are reading the table rather than glancing at it. */
+body.compact .table td { padding-top: 7px; padding-bottom: 7px; }
+body.compact .table th { padding-top: 6px; padding-bottom: 6px; }
+body.compact .list-item { padding-top: 8px; padding-bottom: 8px; }
+body.compact .card { padding: 14px 16px; }
+body.compact .desc { font-size: 13px; }
+body.compact .sub { display: none; }
+
+/* ============ Mobile ============
+   The recurring complaint about every app in this category is that the phone
+   version is an afterthought. These are the spots where this one broke. */
+@media (max-width: 640px) {
+  .form-grid { grid-template-columns: 1fr; }
+  .row.wrap { gap: 14px !important; }
+  .stat-lg { font-size: 19px; }
+  .toolbar { flex-wrap: wrap; gap: 8px; }
+  .toolbar .select, .toolbar .input { flex: 1 1 140px; min-width: 0; }
+  .summary-strip { flex-wrap: wrap; gap: 8px 14px; font-size: 12px; }
+  .rep-row { grid-template-columns: minmax(64px, 30%) 1fr auto; }
+  .rep-n { display: none; }
+  .pm-grid { grid-template-columns: 1fr; }
+  .seg { width: 100%; }
+  .seg button { flex: 1; }
+  /* A modal that fills the screen is easier to use than one that floats in a
+     small window on a small screen. */
+  .modal { max-height: 92vh; }
+}
+
 /* ============ Motion ============
    Applied on navigation only, never on every re-render. Re-animating cards
    each time a filter changes is the single fastest way to make an interface
@@ -1075,7 +1122,7 @@ function docsFromState(st) {
   const m = new Map();
   m.set('config', {
     v: 2, settings: st.settings, categories: st.categories, paymentMethods: st.paymentMethods,
-    businesses: st.businesses, bizCats: st.bizCats, rules: st.rules, recurring: st.recurring, createdAt: st.createdAt,
+    businesses: st.businesses, bizCats: st.bizCats, rules: st.rules, recurring: st.recurring, reports: st.reports, createdAt: st.createdAt,
   });
   m.set('wealth', { accounts: st.accounts, holdings: st.holdings, goals: st.goals, snapshots: st.snapshots });
   m.set('inbox', { items: st.inbox.slice(0, INBOX_MAX) });
@@ -1183,7 +1230,7 @@ function defaultState() {
       { id: uid(), name: 'Insurance sales', kind: 'insurance', color: 2 },
     ],
     bizCats: BIZCAT_DEFAULTS.map(([name, scope, pctv, dep, key]) => ({ id: uid(), name, scope, pct: pctv, depreciable: dep, key })),
-    transactions: [], recurring: [], accounts: [], holdings: [], goals: [], rules: [], trips: [], snapshots: [], inbox: [],
+    transactions: [], recurring: [], reports: [], accounts: [], holdings: [], goals: [], rules: [], trips: [], snapshots: [], inbox: [],
   };
 }
 
@@ -1193,7 +1240,7 @@ function normalizeState(d) {
   if (!d || typeof d !== 'object') return base;
   const out = { ...base, ...d };
   out.settings = { ...base.settings, ...(d.settings || {}) };
-  for (const k of ['categories', 'paymentMethods', 'businesses', 'bizCats', 'transactions', 'recurring', 'accounts', 'holdings', 'goals', 'rules', 'trips', 'snapshots', 'inbox']) {
+  for (const k of ['categories', 'paymentMethods', 'businesses', 'bizCats', 'transactions', 'recurring', 'reports', 'accounts', 'holdings', 'goals', 'rules', 'trips', 'snapshots', 'inbox']) {
     if (!Array.isArray(out[k])) out[k] = base[k];
   }
   out.transactions = out.transactions.filter((t) => t && validDate(t.date) && Number.isFinite(t.amount));
@@ -1769,10 +1816,10 @@ function forecastHTML() {
   }), 200);
 
   const body = '<div class="row wrap" style="gap:22px;margin-bottom:14px">'
-    + '<div><div class="muted small">Liquid today</div><div class="amt" style="font-size:20px;font-weight:650">' + esc(money(fc.start)) + '</div></div>'
-    + '<div><div class="muted small">Bills due</div><div class="amt" style="font-size:20px;font-weight:650">' + esc(money(fc.bills)) + '</div></div>'
-    + '<div><div class="muted small">Income due</div><div class="amt" style="font-size:20px;font-weight:650">' + esc(money(fc.income)) + '</div></div>'
-    + '<div><div class="muted small">In ' + fc.days + ' days</div><div class="amt" style="font-size:20px;font-weight:650">' + esc(money(fc.end)) + '</div></div>'
+    + '<div><div class="muted small">Liquid today</div><div class="amt stat-lg">' + esc(money(fc.start)) + '</div></div>'
+    + '<div><div class="muted small">Bills due</div><div class="amt stat-lg">' + esc(money(fc.bills)) + '</div></div>'
+    + '<div><div class="muted small">Income due</div><div class="amt stat-lg">' + esc(money(fc.income)) + '</div></div>'
+    + '<div><div class="muted small">In ' + fc.days + ' days</div><div class="amt stat-lg">' + esc(money(fc.end)) + '</div></div>'
     + '</div>'
     + (dipsNegative
       ? '<p class="note" style="margin-bottom:10px">' + icon('alert') + '<span>Projected to go negative — ' + lowLine + '</span></p>'
@@ -1781,6 +1828,56 @@ function forecastHTML() {
     + '<p class="muted small" style="margin-top:10px">Bills and income come from your schedule. Day-to-day spending is your average of the last 90 days (' + esc(money(fc.daily)) + ' a day), so treat this as a direction, not a promise.</p>';
 
   return UI.card('Cash flow forecast', body, { cls: 's12', actions: seg });
+}
+
+/* ---------- This week ----------
+   A short read on the last seven days against the seven before them. Weekly is
+   the cadence that catches drift while it is still worth reacting to: monthly
+   is too late to change anything, daily is noise. */
+function weekReview() {
+  const today = todayStr();
+  const startCur = addDays(today, -6);
+  const startPrev = addDays(today, -13);
+  let cur = 0, prev = 0, n = 0;
+  let top = null;
+  const byCat = new Map();
+  for (const t of S.transactions) {
+    if (t.type !== 'expense') continue;
+    if (t.date >= startCur && t.date <= today) {
+      cur += t.amount; n++;
+      if (!top || t.amount > top.amount) top = t;
+      const c = catOf(t.cat);
+      const k = c ? c.name : 'Uncategorised';
+      byCat.set(k, (byCat.get(k) || 0) + t.amount);
+    } else if (t.date >= startPrev && t.date < startCur) {
+      prev += t.amount;
+    }
+  }
+  const lead = [...byCat.entries()].sort((a, b) => b[1] - a[1])[0] || null;
+  const due = upcoming(7);
+  return { cur, prev, delta: cur - prev, n, top, lead, due, startCur, today };
+}
+function weekReviewHTML() {
+  const w = weekReview();
+  if (!w.n && !w.due.length) return '';
+  const dirWord = w.delta > 0 ? 'more' : 'less';
+  const compare = w.prev
+    ? `${esc(money(Math.abs(w.delta)))} ${dirWord} than the week before`
+    : 'Nothing spent the week before to compare against';
+  const leadLine = w.lead ? `Most of it went to ${esc(w.lead[0])} (${esc(money(w.lead[1]))}).` : '';
+  const dueLine = w.due.length
+    ? `${plural(w.due.length, 'bill')} due in the next seven days, ${esc(money(sum(w.due, (r) => r.amount)))} in total.`
+    : 'No bills due in the next seven days.';
+  const topLine = w.top ? `Biggest: ${esc(w.top.desc)} at ${esc(money(w.top.amount))}.` : '';
+  return UI.card('This week', `
+    <div class="row wrap" style="gap:22px;margin-bottom:12px">
+      <div><div class="muted small">Spent</div><div class="amt stat-lg">${esc(money(w.cur))}</div></div>
+      <div><div class="muted small">Purchases</div><div class="stat-lg">${w.n}</div></div>
+    </div>
+    <p class="text-2" style="margin-bottom:6px">${compare}. ${leadLine}</p>
+    <p class="text-2" style="margin-bottom:6px">${topLine}</p>
+    <p class="muted small">${dueLine}</p>`,
+    { sub: `${fmtDate(w.startCur)} – ${fmtDate(w.today)}`, cls: 's6' });
 }
 
 function monthReviewHTML(mk) {
@@ -1800,9 +1897,9 @@ function monthReviewHTML(mk) {
     : '';
   return UI.card('Month in review',
     '<div class="row wrap" style="gap:22px;margin-bottom:14px">'
-    + '<div><div class="muted small">Spent</div><div class="amt" style="font-size:20px;font-weight:650">' + esc(money(r.cur.expense)) + '</div></div>'
-    + '<div><div class="muted small">Earned</div><div class="amt" style="font-size:20px;font-weight:650">' + esc(money(r.cur.income)) + '</div></div>'
-    + '<div><div class="muted small">Net</div><div class="amt" style="font-size:20px;font-weight:650">' + esc(money(r.cur.net, { sign: true })) + '</div></div>'
+    + '<div><div class="muted small">Spent</div><div class="amt stat-lg">' + esc(money(r.cur.expense)) + '</div></div>'
+    + '<div><div class="muted small">Earned</div><div class="amt stat-lg">' + esc(money(r.cur.income)) + '</div></div>'
+    + '<div><div class="muted small">Net</div><div class="amt stat-lg">' + esc(money(r.cur.net, { sign: true })) + '</div></div>'
     + '</div><p class="text-2" style="margin-bottom:10px">' + spendLine + ' · ' + plural(r.count, 'purchase') + '</p>'
     + '<div class="list">' + rows + '</div>' + big,
     { sub: monthLabel(mk), cls: 's6' });
@@ -2265,6 +2362,7 @@ const ui = {
   txSort: Prefs.get('txSort', 'date-desc'),
   animateIn: true,
   forecastDays: Number(Prefs.get('forecastDays', '60')) || 60,
+  compact: Prefs.get('compact', '0') === '1',
   txSel: new Set(),
   firmTab: 'overview',
 };
@@ -2272,7 +2370,7 @@ const TAB_ID = uid();
 
 const NAV = [
   ['Overview', [['dashboard', 'Dashboard', 'dashboard'], ['import', 'Import & Inbox', 'inbox']]],
-  ['Money', [['transactions', 'Transactions', 'list'], ['budgets', 'Budgets', 'pie'], ['recurring', 'Bills & Subs', 'repeat'], ['cards', 'Cards & Accounts', 'card']]],
+  ['Money', [['transactions', 'Transactions', 'list'], ['budgets', 'Budgets', 'pie'], ['recurring', 'Bills & Subs', 'repeat'], ['cards', 'Cards & Accounts', 'card'], ['reports', 'Reports', 'file']]],
   ['Business', [['business', 'Write-offs & Taxes', 'briefcase'], ['propfirms', 'Prop Firms', 'trophy'], ['mileage', 'Mileage Log', 'car']]],
   ['Wealth', [['investments', 'Investments', 'trend'], ['networth', 'Net Worth', 'landmark'], ['goals', 'Goals', 'target']]],
 ];
@@ -2505,7 +2603,7 @@ function applyRemote(ids) {
   const months = new Set(), years = new Set();
   let inboxGrew = 0;
   for (const id of ids) {
-    if (id === 'config') for (const k of ['settings', 'categories', 'paymentMethods', 'businesses', 'bizCats', 'rules', 'recurring']) S[k] = fresh[k];
+    if (id === 'config') for (const k of ['settings', 'categories', 'paymentMethods', 'businesses', 'bizCats', 'rules', 'recurring', 'reports']) S[k] = fresh[k];
     else if (id === 'wealth') for (const k of ['accounts', 'holdings', 'goals', 'snapshots']) S[k] = fresh[k];
     else if (id === 'inbox') { inboxGrew = fresh.inbox.length - S.inbox.length; S.inbox = fresh.inbox; }
     else if (id.startsWith('tx-')) months.add(id.slice(3, 10));
@@ -2636,6 +2734,7 @@ ACT.privacy = () => togglePrivacy();
 ACT['cf-range'] = (el) => { ui.cashflowMonths = Number(el.dataset.months) || 6; Prefs.set('cashflowMonths', String(ui.cashflowMonths)); render(); };
 ACT['pace-range'] = (el) => { ui.paceRange = el.dataset.range || 'month'; Prefs.set('paceRange', ui.paceRange); render(); };
 ACT['fc-range'] = (el) => { ui.forecastDays = Number(el.dataset.days) || 60; Prefs.set('forecastDays', String(ui.forecastDays)); render(); };
+ACT.density = () => { ui.compact = !ui.compact; Prefs.set('compact', ui.compact ? '1' : '0'); document.body.classList.toggle('compact', ui.compact); render(); toast(ui.compact ? 'Compact rows' : 'Comfortable rows'); };
 ACT.noop = () => {};
 ACT.month = (el) => { const d = Number(el.dataset.d); ui.month = d === 0 ? curMonth() : addMonths(ui.month, d); render(); };
 ACT.go = (el) => go(el.dataset.view);
@@ -2996,7 +3095,7 @@ VIEWS.dashboard = {
     const pmItems = [...byPm.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6).map(([id, v]) => { const pm = pmOf(id); return { label: pm ? pm.name : 'Not specified', value: v, color: pm ? colorVar(pm.color) : 'var(--muted)', tip: [tipRow('Spent', money(v)), ...(pm && pm.last4 ? [tipRow('Card', '•••• ' + pm.last4)] : [])] }; });
     const pmCard = UI.card('By payment method', hbars(pmItems), { sub: monthLabel(mk), cls: 's4', actions: '<button class="btn sm ghost" data-act="go" data-view="cards">Cards</button>' });
 
-    return `${banner}${stats}<div class="grid">${needsReviewHTML('s12')}${forecastHTML()}${monthReviewHTML(mk)}${driftHTML()}${cashflow}${hero}${askCardHTML('s8')}${quickImportHTML(aiReady() ? 's4' : 's12')}${pace}${cats}${bills}${recentCard}${pmCard}</div>`;
+    return `${banner}${stats}<div class="grid">${needsReviewHTML('s12')}${forecastHTML()}${weekReviewHTML()}${monthReviewHTML(mk)}${driftHTML()}${cashflow}${hero}${askCardHTML('s8')}${quickImportHTML(aiReady() ? 's4' : 's12')}${pace}${cats}${bills}${recentCard}${pmCard}</div>`;
   },
 };
 function txListItem(x) {
@@ -3516,6 +3615,107 @@ function nextDue(day) {
   if (d < todayStr()) d = mk(t.getFullYear(), t.getMonth() + 1);
   return d;
 }
+/* =========================================================
+   Reports
+   Every other view answers a question the app chose. This one lets you ask
+   your own: a range, some filters, a grouping. Saved reports ride in the
+   config document, so they follow you between devices.
+   ========================================================= */
+function reportRun(r) {
+  const rows = S.transactions.filter((t) => {
+    if (r.from && t.date < r.from) return false;
+    if (r.to && t.date > r.to) return false;
+    if (r.type && t.type !== r.type) return false;
+    if (r.cat && t.cat !== r.cat) return false;
+    if (r.biz === 'business' && !t.biz) return false;
+    if (r.biz === 'personal' && t.biz) return false;
+    return true;
+  });
+  const keyOf = (t) => {
+    if (r.group === 'category') { const c = catOf(t.cat); return c ? c.name : 'Uncategorised'; }
+    if (r.group === 'card') { const p = pmOf(t.pm); return p ? p.name : 'No card'; }
+    if (r.group === 'firm') return (t.biz && t.biz.firm) || 'No firm';
+    return t.date.slice(0, 7);
+  };
+  const groups = new Map();
+  for (const t of rows) {
+    const k = keyOf(t);
+    const cur = groups.get(k) || { total: 0, n: 0 };
+    cur.total += t.amount; cur.n++;
+    groups.set(k, cur);
+  }
+  // Months read best in time order; every other grouping reads best biggest first.
+  const entries = [...groups.entries()];
+  if (r.group === 'month') entries.sort((a, b) => (a[0] < b[0] ? -1 : 1));
+  else entries.sort((a, b) => b[1].total - a[1].total);
+  const total = sum(rows, (t) => t.amount);
+  return { rows, entries, total, count: rows.length, avg: rows.length ? Math.round(total / rows.length) : 0 };
+}
+const REPORT_DEFAULT = () => ({
+  from: curMonth().slice(0, 4) + '-01-01', to: todayStr(),
+  type: 'expense', cat: '', biz: '', group: 'month',
+});
+function reportLabel(r, key) {
+  return r.group === 'month' ? monthLabel(key, 'short') : key;
+}
+VIEWS.reports = {
+  title: 'Reports',
+  render() {
+    const r = ui.report || (ui.report = REPORT_DEFAULT());
+    const out = reportRun(r);
+    const sel = (key, opts) => `<select class="select" data-change="rep" data-key="${key}">${opts.map(([v, l]) => `<option value="${esc(v)}" ${String(r[key]) === String(v) ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>`;
+    const dateIn = (key) => `<input class="input" type="date" data-change="rep" data-key="${key}" value="${esc(r[key] || '')}">`;
+    const controls = `<section class="card"><div class="form-grid">
+      ${UI.field('From', dateIn('from'))}
+      ${UI.field('To', dateIn('to'))}
+      ${UI.field('Type', sel('type', [['', 'All types'], ['expense', 'Expenses'], ['income', 'Income'], ['transfer', 'Transfers']]))}
+      ${UI.field('Category', sel('cat', [['', 'All categories'], ...S.categories.map((c) => [c.id, c.name])]))}
+      ${UI.field('Business', sel('biz', [['', 'Business + personal'], ['business', 'Business only'], ['personal', 'Personal only']]))}
+      ${UI.field('Group by', sel('group', [['month', 'Month'], ['category', 'Category'], ['card', 'Card'], ['firm', 'Prop firm']]))}
+      </div>
+      <div class="toolbar" style="margin-top:12px"><button class="btn sm" data-act="rep-reset">Reset</button><span class="spacer"></span><button class="btn sm" data-act="rep-export">${icon('download')}Export CSV</button><button class="btn sm primary" data-act="rep-save">${icon('plus')}Save report</button></div></section>`;
+
+    if (!out.count) {
+      return `${controls}<div class="card" style="margin-top:16px">${UI.empty('search', 'Nothing in this range', 'Widen the dates or clear a filter and it will fill in.')}</div>${savedReportsHTML()}`;
+    }
+    const max = Math.max(...out.entries.map(([, v]) => v.total), 1);
+    const bars = out.entries.map(([k, v]) => `<div class="rep-row"><span class="rep-k">${esc(reportLabel(r, k))}</span><span class="rep-bar"><i style="width:${Math.round((v.total / max) * 100)}%"></i></span><span class="rep-v amt">${esc(money(v.total))}</span><span class="rep-n muted small">${v.n}</span></div>`).join('');
+    const stats = `<div class="row wrap" style="gap:22px;margin-bottom:14px">
+      <div><div class="muted small">Total</div><div class="amt stat-lg">${esc(money(out.total))}</div></div>
+      <div><div class="muted small">Transactions</div><div class="stat-lg">${out.count}</div></div>
+      <div><div class="muted small">Average</div><div class="amt stat-lg">${esc(money(out.avg))}</div></div>
+      </div>`;
+    return `${controls}<div class="grid" style="margin-top:16px">${UI.card('Result', stats + `<div class="rep-list">${bars}</div>`, { cls: 's12' })}</div>${savedReportsHTML()}`;
+  },
+};
+function savedReportsHTML() {
+  if (!S.reports || !S.reports.length) return '';
+  const rows = S.reports.map((r) => `<div class="list-item"><div class="ico-tile" style="--dot:var(--accent)">${icon('file')}</div><div class="li-main"><div class="li-title">${esc(r.name)}</div><div class="li-sub">${esc(r.from)} to ${esc(r.to)} · by ${esc(r.group)}</div></div><button class="btn sm" data-act="rep-load" data-id="${r.id}">Open</button><button class="btn ghost icon-btn sm" data-act="rep-del" data-id="${r.id}" aria-label="Delete report">${icon('trash')}</button></div>`).join('');
+  return `<div class="grid" style="margin-top:16px">${UI.card('Saved reports', `<div class="list">${rows}</div>`, { cls: 's12' })}</div>`;
+}
+CHG.rep = (el) => { ui.report[el.dataset.key] = el.value; render(); };
+ACT['rep-reset'] = () => { ui.report = REPORT_DEFAULT(); render(); };
+ACT['rep-load'] = (el) => { const r = byId(S.reports, el.dataset.id); if (r) { ui.report = { ...r }; render(); } };
+ACT['rep-del'] = async (el) => {
+  const r = byId(S.reports, el.dataset.id);
+  if (r && await confirmDialog({ title: `Delete ${r.name}?`, message: 'Only the saved filter is removed. Transactions are untouched.', confirmText: 'Delete' })) {
+    commit(() => { S.reports = S.reports.filter((x) => x.id !== r.id); }, 'Report deleted');
+  }
+};
+ACT['rep-export'] = () => exportTxCSV(reportRun(ui.report).rows, `report-${todayStr()}.csv`);
+ACT['rep-save'] = () => {
+  openModal({
+    title: 'Save report',
+    body: UI.field('Name', '<input class="input" name="name" maxlength="50" placeholder="e.g. Trading costs this year" required>', { cls: 'full' }),
+    submitText: 'Save',
+    onSubmit(fd) {
+      const name = String(fd.get('name') || '').trim();
+      if (!name) { toast('Give it a name', 'err'); return false; }
+      commit(() => { S.reports.push({ id: uid(), name, ...ui.report }); }, `Saved “${name}”`);
+    },
+  });
+};
+
 VIEWS.cards = {
   title: 'Cards & Accounts', month: true,
   render() {
@@ -3604,9 +3804,9 @@ VIEWS.cards = {
       .sort((a, b) => (b.v.interest + b.v.fees) - (a.v.interest + a.v.fees));
     const costCard = cost.total ? UI.card('Interest & Fees', `
       <div class="row wrap" style="gap:22px;margin-bottom:14px">
-        <div><div class="muted small">Interest</div><div class="amt" style="font-size:20px;font-weight:650">${esc(money(cost.interest))}</div></div>
-        <div><div class="muted small">Fees</div><div class="amt" style="font-size:20px;font-weight:650">${esc(money(cost.fees))}</div></div>
-        <div><div class="muted small">Total in ${esc(fy)}</div><div class="amt" style="font-size:20px;font-weight:650">${esc(money(cost.total))}</div></div>
+        <div><div class="muted small">Interest</div><div class="amt stat-lg">${esc(money(cost.interest))}</div></div>
+        <div><div class="muted small">Fees</div><div class="amt stat-lg">${esc(money(cost.fees))}</div></div>
+        <div><div class="muted small">Total in ${esc(fy)}</div><div class="amt stat-lg">${esc(money(cost.total))}</div></div>
       </div>
       <div class="list">${costRows.map(({ pm, v }) => `<div class="list-item">
         <i class="dot" style="--dot:${pm ? colorVar(pm.color) : 'var(--muted)'}"></i>
@@ -5134,7 +5334,8 @@ VIEWS.settings = {
     const appearance = UI.card('Preferences', `
       <div class="set-row"><div><div class="sr-t">Currency</div></div>${sel('set-currency', st.currency, [['USD', 'USD $'], ['CAD', 'CAD $'], ['EUR', 'EUR €'], ['GBP', 'GBP £'], ['AUD', 'AUD $'], ['MXN', 'MXN $'], ['INR', 'INR ₹'], ['PKR', 'PKR ₨']])}</div>
       <div class="set-row"><div><div class="sr-t">Tax set-aside rate</div><div class="sr-d">Used for the "set aside" estimates. Not a tax calculation.</div></div><div class="input-wrap" style="width:96px;flex:none"><input class="input" id="set-taxpct" data-change="set-taxpct" inputmode="decimal" value="${esc(st.taxPct)}" style="padding-right:28px;text-align:right" aria-label="Tax set-aside percent"><span class="suffix">%</span></div></div>
-      <div class="set-row"><div><div class="sr-t">Theme</div><div class="sr-d">Applies to Bank Sync as well. Stored on this device.</div></div>${sel('set-theme', ui.theme, [['system', 'Follow system'], ['light', 'Light'], ['blue', 'Light blue'], ['dark', 'Dark']])}</div>`);
+      <div class="set-row"><div><div class="sr-t">Theme</div><div class="sr-d">Applies to Bank Sync as well. Stored on this device.</div></div>${sel('set-theme', ui.theme, [['system', 'Follow system'], ['light', 'Light'], ['blue', 'Light blue'], ['dark', 'Dark']])}</div>
+      <div class="set-row"><div><div class="sr-t">Row density</div><div class="sr-d">Compact fits more on screen. Useful once a table is long enough to scroll.</div></div><button class="btn sm" data-act="density">${ui.compact ? 'Comfortable' : 'Compact'}</button></div>`);
     const chat = UI.card('Import from any Claude chat', `
       <p class="text-2" style="margin-bottom:12px">Send Claude screenshots, statements or receipts in a chat and say <b>“add these to Ledger Vault Cloud”</b>. Claude reads them and drops the transactions in your inbox here, tagged “From chat”, for you to approve.</p>
       <div class="note">${icon('info')}<span>Nothing is added to your books until you approve it.</span></div>`);
@@ -5465,6 +5666,7 @@ function loadingHTML() {
   return `<div class="boot"><div class="brand"><span class="brand-mark">${BRAND_SVG}</span><span>Ledger Vault<small>Cloud</small></span></div><p class="muted">Loading your private data…</p><div class="boot-bar"><i></i></div></div>`;
 }
 function mountApp() {
+  document.body.classList.toggle('compact', ui.compact);
   $('#app').innerHTML = shellHTML();
   ui.view = parseHash();
   if (!location.hash) { try { history.replaceState(null, '', '#/dashboard'); } catch (e) { /* sandboxed */ } }
