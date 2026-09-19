@@ -84,8 +84,60 @@ function findUserByEmail(email) {
 }
 
 // items: { [item_id]: { userId, accessToken, institutionName, cursor } }
-function getItems() { return readJSON(ITEMS_FILE, {}); }
-function saveItems(items) { writeJSON(ITEMS_FILE, items); }
+/* ---------- Encrypting Plaid access tokens at rest ----------
+   A Plaid access_token is a long-lived credential: it does not expire, and
+   anyone holding one can pull the bank data it was issued for. Storing them as
+   plain text in items.json meant anyone who ever read that file — a stray
+   backup, a mounted volume, a misplaced copy of the data directory — held
+   ongoing access to the accounts.
+
+   AES-256-GCM, with the key derived from SESSION_SECRET rather than stored
+   beside the data. Deriving with a distinct info string keeps it separate from
+   the signing key: the same secret, but not the same key, so neither use can
+   weaken the other. GCM is authenticated, so a tampered file fails to decrypt
+   rather than silently returning something wrong.
+
+   Values written before this are plain and stay readable. They are re-written
+   encrypted the first time the file is saved, so migration needs no step. */
+const TOKEN_PREFIX = 'enc.v1.';
+let tokenKey = null;
+function getTokenKey() {
+  if (tokenKey) return tokenKey;
+  const secret = process.env.SESSION_SECRET;
+  if (!secret) return null;
+  tokenKey = crypto.hkdfSync('sha256', Buffer.from(secret, 'utf8'), Buffer.alloc(0), Buffer.from('plaid-access-token-v1'), 32);
+  return Buffer.from(tokenKey);
+}
+function encryptToken(plain) {
+  const key = getTokenKey();
+  if (!key || !plain || String(plain).startsWith(TOKEN_PREFIX)) return plain;
+  const iv = crypto.randomBytes(12);
+  const c = crypto.createCipheriv('aes-256-gcm', key, iv);
+  const out = Buffer.concat([c.update(String(plain), 'utf8'), c.final()]);
+  return TOKEN_PREFIX + Buffer.concat([iv, c.getAuthTag(), out]).toString('base64');
+}
+function decryptToken(stored) {
+  if (!stored || !String(stored).startsWith(TOKEN_PREFIX)) return stored;  // written before this existed
+  const key = getTokenKey();
+  if (!key) throw new Error('SESSION_SECRET is required to read stored bank credentials.');
+  const raw = Buffer.from(String(stored).slice(TOKEN_PREFIX.length), 'base64');
+  const d = crypto.createDecipheriv('aes-256-gcm', key, raw.subarray(0, 12));
+  d.setAuthTag(raw.subarray(12, 28));
+  return Buffer.concat([d.update(raw.subarray(28)), d.final()]).toString('utf8');
+}
+
+function getItems() {
+  const items = readJSON(ITEMS_FILE, {});
+  for (const v of Object.values(items)) if (v && v.accessToken) v.accessToken = decryptToken(v.accessToken);
+  return items;
+}
+function saveItems(items) {
+  // Written encrypted every time, so anything stored in plain text before this
+  // is migrated by the next save without a separate step.
+  const out = {};
+  for (const [id, v] of Object.entries(items)) out[id] = v && v.accessToken ? { ...v, accessToken: encryptToken(v.accessToken) } : v;
+  writeJSON(ITEMS_FILE, out);
+}
 function getItemsForUser(userId) {
   const items = getItems();
   return Object.entries(items).filter(([, v]) => v.userId === userId);
