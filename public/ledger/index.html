@@ -4812,6 +4812,81 @@ function inboxHTML() {
     <label class="check" style="padding:12px 22px 16px"><input type="checkbox" id="learn-rules" data-change="ib-learn" ${S.settings.learnRules !== false ? 'checked' : ''}> Remember categories I change here as rules for next time</label>
   </section>`;
 }
+/* ---------- Coverage ----------
+   When a month looks thin there are two very different causes, and no way to
+   tell them apart from the transaction list: either the bank never sent it —
+   Plaid backfills a fixed window, set when the bank was linked — or it arrived
+   and the import did not keep it. One is fixed by reconnecting, the other by
+   refreshing. This puts both counts side by side so the answer is visible
+   rather than guessed at. */
+const COVERAGE = { rows: null, loading: false, error: '' };
+
+async function loadCoverage() {
+  if (COVERAGE.loading) return;
+  COVERAGE.loading = true; COVERAGE.error = '';
+  render();
+  try {
+    const res = await fetch('/api/transactions');
+    if (res.status === 401) { window.location.href = '/login.html'; return; }
+    if (!res.ok) throw new Error('Bank Sync returned ' + res.status);
+    const list = await res.json();
+
+    const bank = new Map();
+    for (const t of list) {
+      if (t.pending) continue;
+      const k = String(t.date || '').slice(0, 7);
+      if (k) bank.set(k, (bank.get(k) || 0) + 1);
+    }
+    // Only count what came from a bank; typed and CSV rows are not expected to
+    // have a counterpart on the server.
+    const books = new Map();
+    for (const t of S.transactions) {
+      if (!(t.tags || []).includes('bank sync')) continue;
+      const k = t.date.slice(0, 7);
+      books.set(k, (books.get(k) || 0) + 1);
+    }
+    const months = [...new Set([...bank.keys(), ...books.keys()])].sort().reverse();
+    COVERAGE.rows = months.map((m) => ({ month: m, bank: bank.get(m) || 0, books: books.get(m) || 0 }));
+  } catch (e) {
+    COVERAGE.error = e.message || 'Could not reach Bank Sync.';
+  }
+  COVERAGE.loading = false;
+  render();
+}
+ACT['coverage-load'] = () => loadCoverage();
+
+function coverageHTML() {
+  if (COVERAGE.error) {
+    return UI.card('Coverage', `<p class="text-2">${esc(COVERAGE.error)}</p>`,
+      { cls: 's12', actions: `<button class="btn sm" data-act="coverage-load">Try again</button>` });
+  }
+  if (!COVERAGE.rows) {
+    return UI.card('Coverage', `<p class="text-2">Compare what your banks have sent against what is in your books, month by month — the quickest way to tell a missing month from a dropped one.</p>`,
+      { cls: 's12', actions: `<button class="btn sm" data-act="coverage-load" ${COVERAGE.loading ? 'disabled' : ''}>${COVERAGE.loading ? 'Checking…' : 'Check coverage'}</button>` });
+  }
+  if (!COVERAGE.rows.length) {
+    return UI.card('Coverage', `<p class="text-2">No bank-synced transactions yet.</p>`, { cls: 's12' });
+  }
+  const rows = COVERAGE.rows.map((r) => {
+    const gap = r.bank - r.books;
+    const state = gap > 0
+      ? `<span class="badge warn">${gap} not imported</span>`
+      : r.bank === 0
+        ? `<span class="badge">not from a bank</span>`
+        : `<span class="badge good">${icon('check')}complete</span>`;
+    return `<tr><td class="nowrap">${esc(monthLabel(r.month, 'short'))}</td>
+      <td class="num">${r.bank}</td><td class="num">${r.books}</td><td>${state}</td></tr>`;
+  }).join('');
+  const short = COVERAGE.rows.filter((r) => r.bank - r.books > 0);
+  const note = short.length
+    ? `<p class="note" style="margin-top:12px">${icon('alert')}<span>${plural(short.reduce((a, r) => a + (r.bank - r.books), 0), 'transaction')} reached Bank Sync but are not in your books. <b>Refresh from connected banks</b> above brings them in.</span></p>`
+    : `<p class="note" style="margin-top:12px">${icon('check')}<span>Everything your banks sent is in your books. A month that still looks thin was never sent — that is the history window, and reconnecting the bank with a longer one is the fix.</span></p>`;
+  return UI.card('Coverage', `<div class="table-wrap"><table class="table">
+      <thead><tr><th>Month</th><th class="num">From your banks</th><th class="num">In your books</th><th></th></tr></thead>
+      <tbody>${rows}</tbody></table></div>${note}`,
+    { cls: 's12', actions: `<button class="btn sm" data-act="coverage-load" ${COVERAGE.loading ? 'disabled' : ''}>${COVERAGE.loading ? 'Checking…' : 'Refresh'}</button>` });
+}
+
 VIEWS.import = {
   title: 'Import & Inbox',
   render() {
@@ -4844,7 +4919,7 @@ VIEWS.import = {
       </section>
     </div>
     <div id="imp-jobs">${jobsHTML()}</div>
-    ${inboxHTML()}`;
+    ${inboxHTML()}${coverageHTML()}`;
   },
 };
 // Maps Plaid's personal_finance_category.detailed (the PFCv2 taxonomy —
