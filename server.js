@@ -413,16 +413,53 @@ async function syncItem(itemId) {
 
 // Sync every item belonging to the signed-in user.
 app.post('/api/sync', requireAuth, async (req, res) => {
-  try {
-    const mine = getItemsForUser(req.userId);
-    const results = {};
-    for (const [itemId] of mine) {
+  const mine = getItemsForUser(req.userId);
+  const results = {};
+  const errors = [];
+  for (const [itemId, item] of mine) {
+    try {
       results[itemId] = await syncItem(itemId);
+    } catch (err) {
+      const d = (err.response && err.response.data) || {};
+      console.error('sync error:', item.institutionName, d.error_code || err.message);
+      errors.push({
+        item_id: itemId,
+        institution: item.institutionName || 'Connected account',
+        error_code: d.error_code || 'UNKNOWN',
+        error_message: d.error_message || err.message,
+        // Re-authentication is fixed through Link in update mode, which
+        // repairs the existing Item rather than creating a new one — so it
+        // does not consume a connection slot.
+        needs_reauth: d.error_code === 'ITEM_LOGIN_REQUIRED' || d.error_code === 'PENDING_EXPIRATION',
+      });
     }
-    res.json({ ok: true, results });
+  }
+  res.json({ ok: errors.length === 0, results, errors });
+});
+
+/* Link in update mode: re-authenticates a bank you already have. It repairs
+   the existing Item instead of making a new one, so unlike reconnecting it
+   costs nothing against the Plaid Item limit. It cannot widen the history
+   window — that is fixed when the Item is created. */
+app.post('/api/update_link_token', requireAuth, async (req, res) => {
+  const itemId = String((req.body && req.body.item_id) || '');
+  const item = getItems()[itemId];
+  if (!item || item.userId !== req.userId) return res.status(404).json({ error: 'not_found' });
+  try {
+    const request = {
+      user: { client_user_id: req.userId },
+      client_name: 'Ledger Vault Sync',
+      country_codes: COUNTRY_CODES,
+      language: 'en',
+      access_token: item.accessToken,
+    };
+    if (process.env.PLAID_REDIRECT_URI) request.redirect_uri = process.env.PLAID_REDIRECT_URI;
+    const r = await plaidClient.linkTokenCreate(request);
+    res.json({ link_token: r.data.link_token });
   } catch (err) {
-    console.error('sync error:', err.response?.data || err.message);
-    res.status(500).json({ error: err.response?.data || err.message });
+    const d = (err.response && err.response.data) || {};
+    console.error('update_link_token error:', d.error_code || err.message);
+    res.status(500).json({ error: d.error_code || 'link_token_failed', message: d.error_message || err.message });
   }
 });
 

@@ -341,6 +341,7 @@ async function loadAccounts() {
           <div class="acct-name">${esc(it.institution_name)}</div>
           <div class="acct-sub small">${it.connected_at ? `Connected ${fmtConnDate(it.connected_at)}` : ''}${historyNote(it)}</div>
         </div>
+        <button class="btn ghost sm" data-act="fixconn" data-item="${esc(it.item_id)}" data-label="${esc(it.institution_name)}" title="Sign in again to repair this connection. Does not use a Plaid connection slot.">Fix connection</button>
         <button class="btn ghost sm" data-act="relink" data-item="${esc(it.item_id)}" data-label="${esc(it.institution_name)}" title="Link this bank again to widen its history">Reconnect</button>
         <button class="btn ghost sm" data-act="disconnect" data-item="${esc(it.item_id)}" data-label="${esc(it.institution_name)}">Disconnect</button>
       </div>
@@ -402,6 +403,13 @@ Continue?`)) return;
 });
 
 $('#accountsWrap').addEventListener('click', async (e) => {
+  const fx = e.target.closest('[data-act="fixconn"]');
+  if (fx) {
+    fx.disabled = true;
+    try { await fixConnection(fx.dataset.item, fx.dataset.label); }
+    finally { fx.disabled = false; }
+    return;
+  }
   const re = e.target.closest('[data-act="relink"]');
   if (re) { re.disabled = true; try { await relinkBank(re.dataset.item, re.dataset.label); } finally { re.disabled = false; } return; }
   const btn = e.target.closest('[data-act="disconnect"]');
@@ -508,6 +516,36 @@ async function openLink(days) {
 // cannot raise it, so widening history means a genuinely new Item. The new one
 // is linked first and the old removed only once it succeeds — backing out
 // halfway should leave the bank connected, not gone.
+/* Link in update mode. It re-authenticates the bank you already have rather
+   than creating a new connection, so it does not spend a Plaid connection
+   slot — which matters once the free allowance is used up. It cannot change
+   the history window; that is fixed when a connection is first made. */
+async function fixConnection(itemId, label) {
+  setStatus(`Repairing ${label}…`);
+  try {
+    const { link_token } = await api('/api/update_link_token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ item_id: itemId }),
+    });
+    await new Promise((resolve) => {
+      const handler = Plaid.create({
+        token: link_token,
+        onSuccess: () => resolve(true),
+        onExit: () => resolve(false),
+      });
+      handler.open();
+    });
+    setStatus(`${label} repaired. Syncing…`);
+    await api('/api/sync', { method: 'POST' });
+    await refreshAll();
+    setStatus(`${label} reconnected.`);
+  } catch (e) {
+    console.error(e);
+    setStatus(e.message || `Could not repair ${label}.`);
+  }
+}
+
 async function relinkBank(itemId, label) {
   // Reconnecting creates a new Item, which spends a slot that disconnecting the
   // old one will not give back. Worth one deliberate confirmation.
@@ -561,12 +599,20 @@ $('#connectBtn').addEventListener('click', async () => {
 $('#syncBtn').addEventListener('click', async () => {
   setStatus('Syncing…');
   try {
-    await api('/api/sync', { method: 'POST' });
-    setStatus('Synced.');
+    const out = await api('/api/sync', { method: 'POST' });
     await refreshAll();
+    if (out.errors && out.errors.length) {
+      // Name the bank and quote Plaid's own code. "Sync failed" tells nobody
+      // anything; ITEM_LOGIN_REQUIRED tells you exactly what to do.
+      const reauth = out.errors.filter((e) => e.needs_reauth);
+      const parts = out.errors.map((e) => `${e.institution}: ${e.error_code}`);
+      setStatus(parts.join(' · ') + (reauth.length ? ' — use Fix connection on that bank.' : ''));
+    } else {
+      setStatus('Synced.');
+    }
   } catch (e) {
     console.error(e);
-    setStatus('Sync failed — check the server console.');
+    setStatus(e.message || 'Sync failed.');
   }
 });
 
