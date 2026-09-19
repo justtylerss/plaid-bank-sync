@@ -340,26 +340,30 @@ app.get('/api/items', requireAuth, (req, res) => {
   res.json(list);
 });
 
-// Disconnect a bank connection: revokes the access_token with Plaid, then
-// removes the item and everything under it (its accounts, and any
-// transactions on those accounts) from local storage.
-app.delete('/api/items/:itemId', requireAuth, async (req, res) => {
-  const { itemId } = req.params;
+// Revoke a set of items with Plaid and remove everything under them (their
+// accounts, and any transactions on those accounts) from local storage. Takes
+// a set so disconnecting many banks is one pass over the stores rather than
+// one rewrite per bank. Callers must pass only ids the signed-in user owns.
+async function removeItems(itemIds) {
   const items = getItems();
-  const item = items[itemId];
-  if (!item || item.userId !== req.userId) return res.status(404).json({ error: 'not_found' });
+  const failed = [];
 
-  try {
-    await plaidClient.itemRemove({ access_token: item.accessToken });
-  } catch (err) {
-    // Log and continue — the person's intent is clear (disconnect it), and
-    // an already-invalid or already-removed token shouldn't block cleanup.
-    console.error('itemRemove error:', err.response?.data || err.message);
+  for (const itemId of itemIds) {
+    const item = items[itemId];
+    if (!item) continue;
+    try {
+      await plaidClient.itemRemove({ access_token: item.accessToken });
+    } catch (err) {
+      // Log and continue — the person's intent is clear (disconnect it), and
+      // an already-invalid or already-removed token shouldn't block cleanup.
+      console.error('itemRemove error:', err.response?.data || err.message);
+      failed.push(item.institutionName || itemId);
+    }
   }
 
   const accounts = getAccounts();
   const removedAccountIds = new Set(
-    Object.entries(accounts).filter(([, a]) => a.itemId === itemId).map(([id]) => id)
+    Object.entries(accounts).filter(([, a]) => itemIds.has(a.itemId)).map(([id]) => id)
   );
   for (const id of removedAccountIds) delete accounts[id];
   saveAccounts(accounts);
@@ -371,10 +375,41 @@ app.delete('/api/items/:itemId', requireAuth, async (req, res) => {
   }
   saveTransactions(tx);
 
-  delete items[itemId];
+  for (const id of itemIds) delete items[id];
   saveItems(items);
 
-  res.json({ ok: true, removedAccounts: removedAccountIds.size, removedTransactions: removedTx });
+  return {
+    removedItems: itemIds.size,
+    removedAccounts: removedAccountIds.size,
+    removedTransactions: removedTx,
+    revokeFailed: failed,
+  };
+}
+
+// Disconnect every bank the signed-in user has connected. Declared before the
+// :itemId route so "all" is never read as an item id.
+app.delete('/api/items', requireAuth, async (req, res) => {
+  const mine = getItemsForUser(req.userId).map(([itemId]) => itemId);
+  if (!mine.length) return res.json({ ok: true, removedItems: 0, removedAccounts: 0, removedTransactions: 0, revokeFailed: [] });
+  try {
+    res.json({ ok: true, ...(await removeItems(new Set(mine))) });
+  } catch (err) {
+    console.error('disconnect all error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Disconnect one bank connection.
+app.delete('/api/items/:itemId', requireAuth, async (req, res) => {
+  const { itemId } = req.params;
+  const item = getItems()[itemId];
+  if (!item || item.userId !== req.userId) return res.status(404).json({ error: 'not_found' });
+  try {
+    res.json({ ok: true, ...(await removeItems(new Set([itemId]))) });
+  } catch (err) {
+    console.error('disconnect error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // List the signed-in user's accounts (balances, masked numbers), each

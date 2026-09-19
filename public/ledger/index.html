@@ -26,7 +26,7 @@
   --mono: "Geist Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
 }
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
+  :root:not([data-theme="light"]):not([data-theme="blue"]) {
     color-scheme: dark;
     --bg: #08090a; --surface: #141618; --surface-2: #1b1e21; --surface-3: #25292d;
     --card-border: rgba(255,255,255,.05); --line: rgba(255,255,255,.08); --line-2: rgba(255,255,255,.15);
@@ -569,7 +569,33 @@ body.dragging::after { content: "Drop to import"; position: fixed; inset: 12px; 
   .inbox-table .select.sm { min-width: 110px; }
 }
 
+
+/* Light blue: white cards on a soft blue ground. A deliberate choice rather
+   than a system-derived one, so it opts out of the dark media query above. */
+:root[data-theme="blue"] {
+  color-scheme: light;
+  --bg: #eef5fc; --surface: #ffffff; --surface-2: #f5f9fe; --surface-3: #e5eff9;
+  --card-border: #dae7f4; --line: #e2edf8; --line-2: #c4d8ed;
+  --text: #0e1a29; --text-2: #3d5468; --muted: #6a8098;
+  --accent: #1769c8; --accent-text: #135ab0; --accent-ink: #ffffff; --accent-soft: rgba(23,105,200,.10);
+  --feature: #1560b9; --feature-ink: #ffffff; --feature-mute: rgba(255,255,255,.76); --feature-line: rgba(255,255,255,.18);
+  --btn: #12283f; --btn-ink: #ffffff;
+  --pos: #0b7a45; --neg: #cf2f3b; --warn: #c26f00; --crit: #e23b4a;
+  --grid: #e6eff9; --axis: #bcd2e8;
+  --c0: #1769c8; --c1: #eb6834; --c2: #1baf7a; --c3: #eda100;
+  --c4: #e87ba4; --c5: #008300; --c6: #4a3aa7; --c7: #e34948;
+  --shadow: 0 24px 60px rgba(17,52,94,.14);
+}
 </style>
+<script>
+(function () {
+  try {
+    var t = localStorage.getItem('lvc-theme');
+    if (t && t !== 'system') document.documentElement.setAttribute('data-theme', t);
+  } catch (e) { /* private mode: fall back to the system theme */ }
+})();
+</script>
+
 <div id="app"></div>
 <div id="tip" role="tooltip"></div>
 <div id="toasts" aria-live="polite"></div>
@@ -1527,6 +1553,7 @@ const ui = {
   bizTab: 'all', firmYear: 'all', privacy: Prefs.get('privacy', '0') === '1',
   cashflowMonths: Number(Prefs.get('cashflowMonths', '6')) || 6,
   paceRange: Prefs.get('paceRange', 'month'),
+  theme: Prefs.get('theme', 'system'),
   txSel: new Set(),
   firmTab: 'overview',
 };
@@ -2554,6 +2581,8 @@ const CHANGELOG = [
   {
     date: 'Sep 19, 2026',
     items: [
+      'New Light blue theme — white cards on a soft blue ground — plus a proper theme picker under Settings & privacy. Follow system, Light, Light blue or Dark; the choice covers Bank Sync and the sign-in screen too, and is remembered per device.',
+      'Bank Sync gained a Disconnect all button next to Accounts, for clearing every connected bank at once instead of one at a time. It asks twice, since reconnecting means going through Plaid Link again for each bank.',
       'Bills & subs can now be built from your connected banks — "Find from connected banks" pulls Plaid’s detected recurring streams and fills in amount, frequency, next due date, category and card. Re-running refreshes the figures and keeps any categorisation you set yourself.',
       'Bank Sync now asks how much history to pull when you connect (90 days up to 2 years, defaulting to the 2-year maximum). Plaid previously defaulted to 90 days, which is why older transactions were missing. The window is fixed when a bank is linked, so banks connected before this need disconnecting and reconnecting to get more.',
       'Amounts no longer auto-blur after 10 minutes away by default. The setting is still there under Settings & privacy → Auto-hide amounts, and existing accounts keep whatever they already had.',
@@ -4108,7 +4137,7 @@ VIEWS.settings = {
     const appearance = UI.card('Preferences', `
       <div class="set-row"><div><div class="sr-t">Currency</div></div>${sel('set-currency', st.currency, [['USD', 'USD $'], ['CAD', 'CAD $'], ['EUR', 'EUR €'], ['GBP', 'GBP £'], ['AUD', 'AUD $'], ['MXN', 'MXN $'], ['INR', 'INR ₹'], ['PKR', 'PKR ₨']])}</div>
       <div class="set-row"><div><div class="sr-t">Tax set-aside rate</div><div class="sr-d">Used for the "set aside" estimates. Not a tax calculation.</div></div><div class="input-wrap" style="width:96px;flex:none"><input class="input" id="set-taxpct" data-change="set-taxpct" inputmode="decimal" value="${esc(st.taxPct)}" style="padding-right:28px;text-align:right" aria-label="Tax set-aside percent"><span class="suffix">%</span></div></div>
-      <div class="set-row"><div><div class="sr-t">Theme</div><div class="sr-d">Follows your Claude appearance setting.</div></div></div>`);
+      <div class="set-row"><div><div class="sr-t">Theme</div><div class="sr-d">Applies to Bank Sync as well. Stored on this device.</div></div>${sel('set-theme', ui.theme, [['system', 'Follow system'], ['light', 'Light'], ['blue', 'Light blue'], ['dark', 'Dark']])}</div>`);
     const chat = UI.card('Import from any Claude chat', `
       <p class="text-2" style="margin-bottom:12px">Send Claude screenshots, statements or receipts in a chat and say <b>“add these to Ledger Vault Cloud”</b>. Claude reads them and drops the transactions in your inbox here, tagged “From chat”, for you to approve.</p>
       <div class="note">${icon('info')}<span>Nothing is added to your books until you approve it.</span></div>`);
@@ -4132,6 +4161,21 @@ VIEWS.settings = {
 
 /* ---------- Preference handlers ---------- */
 CHG['set-idle'] = (el) => commit(() => { S.settings.idleHideMin = Number(el.value); }, Number(el.value) ? `Amounts auto-hide ${el.options[el.selectedIndex].text.toLowerCase()}` : 'Auto-hide off');
+/* ---------- Theme ----------
+   Device-level, like the privacy toggle, rather than part of the synced
+   document: the same books opened on a phone and a laptop can reasonably
+   want different themes. "system" means no data-theme attribute at all, so
+   the prefers-color-scheme rules take over again. The head script applies
+   the saved value before first paint; this only handles later changes. */
+function applyTheme(v) {
+  ui.theme = v;
+  Prefs.set('theme', v);
+  if (v === 'system') document.documentElement.removeAttribute('data-theme');
+  else document.documentElement.setAttribute('data-theme', v);
+}
+const THEME_LABEL = { system: 'Following your system', light: 'Light', blue: 'Light blue', dark: 'Dark' };
+CHG['set-theme'] = (el) => { applyTheme(el.value); toast(THEME_LABEL[el.value] || 'Theme changed'); };
+
 CHG['set-privacy'] = () => togglePrivacy();
 CHG['set-currency'] = (el) => { fmtCache.clear(); commit(() => { S.settings.currency = el.value; }, 'Currency updated'); };
 CHG['set-taxpct'] = (el) => { const v = parseFloat(el.value); if (!(v >= 0 && v <= 60)) { toast('Use a percentage between 0 and 60', 'err'); el.value = S.settings.taxPct; return; } commit(() => { S.settings.taxPct = Math.round(v * 10) / 10; }, 'Set-aside rate saved'); };

@@ -21,7 +21,7 @@
   --display: "Onest", "Geist", system-ui, -apple-system, "Segoe UI", sans-serif;
 }
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]):not([data-theme="blue"]) {
     color-scheme: dark;
     --bg: #08090a; --surface: #141618; --surface-2: #1b1e21; --surface-3: #25292d;
     --card-border: rgba(255,255,255,.05); --line: rgba(255,255,255,.08); --line-2: rgba(255,255,255,.15);
@@ -67,7 +67,27 @@ button:disabled { opacity: .6; cursor: default; }
 .toggle a { color: var(--accent-text); text-decoration: none; font-weight: 600; cursor: pointer; }
 .error { color: var(--crit); font-size: 13px; margin-top: 12px; display: none; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Light blue, matching the Ledger and Bank Sync. */
+:root[data-theme="blue"] {
+  color-scheme: light;
+  --bg: #eef5fc; --surface: #ffffff; --surface-2: #f5f9fe; --surface-3: #e5eff9;
+  --card-border: #dae7f4; --line: #e2edf8; --line-2: #c4d8ed;
+  --text: #0e1a29; --text-2: #3d5468; --muted: #6a8098;
+  --accent: #1769c8; --accent-text: #135ab0; --accent-ink: #ffffff; --accent-soft: rgba(23,105,200,.10);
+  --crit: #e23b4a;
+  --shadow: 0 24px 60px rgba(17,52,94,.14);
+}
 </style>
+<script>
+(function () {
+  try {
+    var t = localStorage.getItem('lvc-theme');
+    if (t && t !== 'system') document.documentElement.setAttribute('data-theme', t);
+  } catch (e) { /* private mode: fall back to the system theme */ }
+})();
+</script>
+
 </head>
 <body>
 

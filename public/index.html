@@ -27,7 +27,7 @@
   --mono: "Geist Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
 }
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
+  :root:not([data-theme="light"]):not([data-theme="blue"]) {
     color-scheme: dark;
     --bg: #08090a; --surface: #141618; --surface-2: #1b1e21; --surface-3: #25292d;
     --card-border: rgba(255,255,255,.05); --line: rgba(255,255,255,.08); --line-2: rgba(255,255,255,.15);
@@ -144,7 +144,31 @@ svg.i { width: 18px; height: 18px; flex: none; stroke: currentColor; fill: none;
 
 .skel { background: linear-gradient(90deg, var(--surface-2) 25%, var(--surface-3) 37%, var(--surface-2) 63%); background-size: 400% 100%; animation: skel 1.4s ease infinite; border-radius: var(--radius-sm); height: 54px; }
 @keyframes skel { 0% { background-position: 100% 50%; } 100% { background-position: 0 50%; } }
+
+/* Light blue: white cards on a soft blue ground. Kept in step with the same
+   theme in the Ledger; the choice is shared between both pages. */
+:root[data-theme="blue"] {
+  color-scheme: light;
+  --bg: #eef5fc; --surface: #ffffff; --surface-2: #f5f9fe; --surface-3: #e5eff9;
+  --card-border: #dae7f4; --line: #e2edf8; --line-2: #c4d8ed;
+  --text: #0e1a29; --text-2: #3d5468; --muted: #6a8098;
+  --accent: #1769c8; --accent-text: #135ab0; --accent-ink: #ffffff; --accent-soft: rgba(23,105,200,.10);
+  --btn: #12283f; --btn-ink: #ffffff;
+  --pos: #0b7a45; --neg: #cf2f3b; --warn: #c26f00; --crit: #e23b4a;
+  --c0: #1769c8; --c1: #eb6834; --c2: #1baf7a; --c3: #eda100;
+  --c4: #e87ba4; --c5: #4a3aa7; --c6: #4a3aa7; --c7: #e34948;
+  --shadow: 0 24px 60px rgba(17,52,94,.14);
+}
 </style>
+<script>
+(function () {
+  try {
+    var t = localStorage.getItem('lvc-theme');
+    if (t && t !== 'system') document.documentElement.setAttribute('data-theme', t);
+  } catch (e) { /* private mode: fall back to the system theme */ }
+})();
+</script>
+
 </head>
 <body>
 
@@ -187,7 +211,7 @@ svg.i { width: 18px; height: 18px; flex: none; stroke: currentColor; fill: none;
   </section>
 
   <section>
-    <div class="section-h"><h2>Accounts</h2></div>
+    <div class="section-h"><h2>Accounts</h2><button id="disconnectAllBtn" class="btn ghost sm" hidden>Disconnect all</button></div>
     <div id="accountsWrap" class="accounts-grid"></div>
   </section>
 
@@ -263,6 +287,7 @@ async function loadAccounts() {
     wrap.innerHTML = `<div class="card empty"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3 21h18M5 21v-9M9.7 21v-9M14.3 21v-9M19 21v-9M2.5 9.5L12 3l9.5 6.5z"/></svg><div>No banks connected yet</div></div>`;
     $('#heroAmt').textContent = money(0);
     $('#heroSub').textContent = 'Connect a bank to see it here.';
+    const none = $('#disconnectAllBtn'); if (none) none.hidden = true;
     return;
   }
 
@@ -304,7 +329,47 @@ async function loadAccounts() {
   $('#heroSub').textContent = liabilities > 0
     ? `${money(assets)} in accounts · ${money(liabilities)} owed`
     : `Across ${accounts.length} connected account${accounts.length === 1 ? '' : 's'}`;
+
+  // Only worth offering when there is more than one thing to disconnect —
+  // with a single bank the per-connection button is the clearer action.
+  const all = $('#disconnectAllBtn');
+  if (all) {
+    all.hidden = items.length < 2;
+    all.dataset.count = String(items.length);
+    all.dataset.labels = items.map((it) => it.institution_name || 'Connected account').join(', ');
+  }
 }
+
+$('#disconnectAllBtn').addEventListener('click', async (e) => {
+  const btn = e.currentTarget;
+  const count = Number(btn.dataset.count || 0);
+  const labels = btn.dataset.labels || '';
+  if (!count) return;
+  if (!confirm(`Disconnect all ${count} banks?
+
+${labels}
+
+This revokes each connection at Plaid and removes their accounts and transactions from Bank Sync.`)) return;
+  // Second gate, because this one cannot be undone from here: reconnecting
+  // means going through Plaid Link again for every bank.
+  if (!confirm('Last check — reconnecting means linking every bank again through Plaid. Continue?')) return;
+
+  btn.disabled = true;
+  setStatus('Disconnecting…');
+  try {
+    const out = await api('/api/items', { method: 'DELETE' });
+    const bits = [`${out.removedItems} disconnected`];
+    if (out.removedTransactions) bits.push(`${out.removedTransactions} transactions removed`);
+    if (out.revokeFailed && out.revokeFailed.length) bits.push(`${out.revokeFailed.length} could not be revoked at Plaid (removed locally)`);
+    setStatus(bits.join(' · '));
+    await refreshAll();
+  } catch (err) {
+    console.error(err);
+    setStatus('Could not disconnect — check the server console.');
+  } finally {
+    btn.disabled = false;
+  }
+});
 
 $('#accountsWrap').addEventListener('click', async (e) => {
   const btn = e.target.closest('[data-act="disconnect"]');
