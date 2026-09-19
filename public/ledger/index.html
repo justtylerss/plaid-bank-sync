@@ -1009,7 +1009,7 @@ function defaultState() {
     schema: SCHEMA,
     createdAt: new Date().toISOString(),
     settings: {
-      currency: 'USD', idleHideMin: 10, taxPct: 25, lastBackupAt: null, lastPm: '',
+      currency: 'USD', idleHideMin: 0, taxPct: 25, lastBackupAt: null, lastPm: '',
       mileageRates: [
         { id: uid(), from: '2025-01-01', rate: 70 },
         { id: uid(), from: '2026-01-01', rate: 72.5 },
@@ -2345,7 +2345,7 @@ ACT['budget-suggest'] = async () => {
 VIEWS.recurring = {
   title: 'Bills & subscriptions',
   render() {
-    if (!S.recurring.length) return `<div class="card">${UI.empty('repeat', 'No bills or subscriptions yet', 'Add rent, TradingView, data fees, insurance premiums, paychecks… Post them in one click when they hit.', '<button class="btn primary sm" data-act="rec-add">Add a bill</button>')}</div>`;
+    if (!S.recurring.length) return `<div class="card">${UI.empty('repeat', 'No bills or subscriptions yet', 'Add rent, TradingView, data fees, insurance premiums, paychecks… Post them in one click when they hit.', '<button class="btn primary sm" data-act="rec-detect">Find from connected banks</button> <button class="btn sm" data-act="rec-add">Add manually</button>')}</div>`;
     const items = S.recurring.slice().sort((a, b) => (a.active === false) - (b.active === false) || (a.next < b.next ? -1 : 1));
     const act = items.filter((r) => r.active !== false);
     const out = sum(act.filter((r) => r.type === 'expense'), monthlyEquiv);
@@ -2373,7 +2373,7 @@ VIEWS.recurring = {
       ${UI.stat('Recurring income', amt(inc), { sub: 'Per month' })}
     </div>
     ${due.length ? `<div class="banner accent">${icon('alert')}<div class="grow"><b>${plural(due.length, 'item')} due now.</b> <span class="text-2">Posting records the transaction and schedules the next one.</span></div><button class="btn sm primary" data-act="rec-post-all">Post all due</button></div>` : ''}
-    <section class="card flush"><header class="card-h" style="padding:16px 18px 6px"><div><h3>All recurring</h3></div><div class="card-actions"><button class="btn sm" data-act="rec-add">${icon('plus')}Add</button></div></header>
+    <section class="card flush"><header class="card-h" style="padding:16px 18px 6px"><div><h3>All recurring</h3></div><div class="card-actions"><button class="btn sm" data-act="rec-detect">${icon('refresh')}Find from banks</button><button class="btn sm" data-act="rec-add">${icon('plus')}Add</button></div></header>
     <div class="table-wrap"><table class="table"><thead><tr><th>Name</th><th class="hide-sm">Frequency</th><th>Next</th><th class="hide-sm">Business</th><th class="num">Amount</th><th class="num hide-md">Monthly</th><th></th></tr></thead><tbody>${items.map(row).join('')}</tbody></table></div></section>`;
   },
 };
@@ -2415,6 +2415,128 @@ function recModal(r = null) {
   });
 }
 ACT['rec-add'] = () => recModal();
+/* ---------- Auto-detect bills & subs from connected banks ----------
+   Plaid derives recurring streams from the transaction history it holds for
+   each Item (/api/recurring on the Bank Sync server). Detection quality
+   depends on how much history was requested when the bank was linked —
+   Plaid advises at least 180 days, so banks linked with the old 90-day
+   default will find little until they're reconnected.
+
+   Streams already pulled in are matched by stream id, so re-running updates
+   amount/next-date in place rather than piling up duplicates. Anything you
+   edited yourself (category, card, business split) is preserved on update —
+   only the figures Plaid owns get refreshed. */
+const PLAID_FREQ = {
+  WEEKLY: 'weekly',
+  BIWEEKLY: 'biweekly',
+  // The app has no semi-monthly option; biweekly is the closest of what it
+  // does have (24/yr vs 26/yr, so the monthly estimate runs ~8% high).
+  SEMI_MONTHLY: 'biweekly',
+  MONTHLY: 'monthly',
+  ANNUALLY: 'yearly',
+};
+
+function streamToRecurring(st) {
+  const type = st.direction === 'in' ? 'income' : 'expense';
+  const freq = PLAID_FREQ[st.frequency] || 'monthly';
+  const raw = st.average_amount && typeof st.average_amount.amount === 'number'
+    ? st.average_amount.amount
+    : (st.last_amount || {}).amount;
+  const amount = Math.round(Math.abs(Number(raw) || 0) * 100);
+  if (!amount) return null;
+
+  const desc = cleanDesc(st.merchant_name || st.description || 'Recurring');
+  let next = st.predicted_next_date;
+  if (!validDate(next)) next = validDate(st.last_date) ? nextDate(st.last_date, freq, 0) : todayStr();
+  // A predicted date that has already passed is stale; roll it forward so the
+  // item doesn't land in "due now" the moment it's imported.
+  let guard = 0;
+  while (next < todayStr() && guard++ < 36) next = nextDate(next, freq, 0);
+
+  let cat = '', biz = null;
+  const rule = matchRule(desc);
+  if (rule) {
+    const rc = catOf(rule.cat);
+    if (rc && rc.kind === type) cat = rule.cat;
+    if (rule.biz) biz = { ...rule.biz };
+  }
+  if (!biz) {
+    const pf = propFirmBizFor(desc, type);
+    if (pf) {
+      biz = pf;
+      if (!cat) { const wantName = type === 'income' ? 'Trading payouts' : 'Prop firm'; const c = byName(catsOfKind(type), wantName); if (c) cat = c.id; }
+    }
+  }
+  if (!cat) {
+    const mapped = categorizeFromPFC(st.personal_finance_category);
+    if (mapped.category) { const c = byName(catsOfKind(type), mapped.category); if (c) cat = c.id; }
+  }
+  if (!cat) cat = fallbackCat(type);
+
+  const pm = pmByLast4(st.account_mask);
+  return {
+    id: uid(), sid: st.stream_id, name: desc, type, amount, freq, next,
+    anchor: Number(next.slice(8)) || 0, cat, pm: pm ? pm.id : '', biz,
+    active: st.is_active !== false,
+  };
+}
+
+ACT['rec-detect'] = async () => {
+  const job = newJob('Finding bills & subscriptions', 'banksync');
+  try {
+    const res = await fetch('/api/recurring');
+    if (res.status === 401) { window.location.href = '/login.html'; return; }
+    if (!res.ok) throw new Error(`Bank Sync returned ${res.status}`);
+    const { streams = [], errors = [] } = await res.json();
+
+    const live = streams.filter((st) => st.status !== 'TOMBSTONED');
+    const bySid = new Map(S.recurring.filter((r) => r.sid).map((r) => [r.sid, r]));
+    const added = [];
+    let updated = 0, known = 0;
+
+    for (const st of live) {
+      const mapped = streamToRecurring(st);
+      if (!mapped) continue;
+      const existing = bySid.get(st.stream_id);
+      if (existing) {
+        // Refresh only what Plaid owns; keep the user's own categorisation.
+        existing.amount = mapped.amount;
+        existing.freq = mapped.freq;
+        existing.next = mapped.next;
+        existing.active = mapped.active;
+        updated++;
+        continue;
+      }
+      // Don't duplicate a bill that was already entered by hand.
+      const manual = S.recurring.find((r) => !r.sid && nameKey(r.name) === nameKey(mapped.name));
+      if (manual) { manual.sid = st.stream_id; known++; continue; }
+      added.push(mapped);
+    }
+
+    if (added.length || updated || known) {
+      commit(() => { if (added.length) S.recurring.push(...added); }, '');
+    }
+
+    const parts = [];
+    if (added.length) parts.push(`${plural(added.length, 'new bill')} found`);
+    if (updated) parts.push(`${updated} updated`);
+    if (known) parts.push(`${known} already tracked`);
+    if (!parts.length) parts.push(live.length ? 'Nothing new' : 'No recurring patterns detected yet');
+    if (errors.length) parts.push(`${plural(errors.length, 'bank')} could not be read`);
+
+    jobUpdate(job, { status: 'done', ended: Date.now(), msg: parts.join(' · ') });
+    render();
+    toast(parts.join(' · '));
+    if (!live.length && !errors.length) {
+      toast('Plaid needs a few months of history to spot patterns. Banks linked before the history setting existed only have 90 days — reconnect them to get more.', '', { label: 'Bank Sync', fn: () => { window.location.href = '/'; } });
+    }
+  } catch (e) {
+    console.error(e);
+    failJob(job, e);
+    toast('Could not reach Bank Sync — is it running?', 'err');
+  }
+};
+
 ACT['rec-edit'] = (el) => { const r = byId(S.recurring, el.dataset.id); if (r) recModal(r); };
 ACT['rec-post'] = (el) => { const r = byId(S.recurring, el.dataset.id); if (r) commit(() => postRecurring(r), `Posted ${r.name} · next ${fmtDate(nextDate(r.next, r.freq, r.anchor))}`); };
 ACT['rec-post-all'] = () => { const due = upcoming(0); commit(() => { for (const r of due) { let guard = 0; while (r.next <= todayStr() && guard++ < 24) postRecurring(r); } }, `Posted ${plural(due.length, 'item')}`); };

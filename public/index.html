@@ -172,7 +172,17 @@ svg.i { width: 18px; height: 18px; flex: none; stroke: currentColor; fill: none;
       <button id="connectBtn" class="btn accent">Connect a bank or card</button>
       <button id="syncBtn" class="btn">Sync now</button>
       <button id="exportBtn" class="btn ghost">Export CSV</button>
+      <label class="hist-pick small muted" for="histDays">History
+        <select id="histDays">
+          <option value="90">90 days</option>
+          <option value="180">6 months</option>
+          <option value="ytd">This year</option>
+          <option value="365">1 year</option>
+          <option value="730" selected>2 years (max)</option>
+        </select>
+      </label>
     </div>
+    <div class="small muted" id="histNote">Set once, when you connect. Plaid fixes the window at link time — changing it later means disconnecting the bank and linking it again.</div>
     <div id="status" class="small muted"></div>
   </section>
 
@@ -352,10 +362,28 @@ async function refreshAll() {
   await Promise.all([loadAccounts(), loadTransactions()]);
 }
 
+// Plaid fixes the history window when the Item is created and will not let it
+// be raised afterwards, so this is asked up front rather than buried in
+// settings. "This year" is measured from Jan 1 of the current year.
+function historyDaysWanted() {
+  const v = ($('#histDays') || {}).value || '730';
+  if (v === 'ytd') {
+    const now = new Date();
+    const jan1 = new Date(now.getFullYear(), 0, 1);
+    return Math.max(1, Math.ceil((now - jan1) / 86400000));
+  }
+  return Number(v) || 730;
+}
+
 $('#connectBtn').addEventListener('click', async () => {
   setStatus('Opening Plaid Link…');
+  const days = historyDaysWanted();
   try {
-    const { link_token } = await api('/api/create_link_token', { method: 'POST' });
+    const { link_token } = await api('/api/create_link_token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ days }),
+    });
     const handler = Plaid.create({
       token: link_token,
       onSuccess: async (public_token, metadata) => {
@@ -363,7 +391,7 @@ $('#connectBtn').addEventListener('click', async () => {
         await api('/api/exchange_public_token', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ public_token, institution_name: metadata?.institution?.name }),
+          body: JSON.stringify({ public_token, institution_name: metadata?.institution?.name, days }),
         });
         setStatus('Connected.');
         await refreshAll();

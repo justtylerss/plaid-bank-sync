@@ -200,20 +200,37 @@ app.get('/api/auth/me', requireAuth, (req, res) => {
 // ---- Everything below here belongs to the signed-in user only -------------
 
 // Create a Link token for the frontend to open Plaid Link with.
+// Plaid backfills only 90 days of history by default, which is the usual
+// cause of "where are my older transactions?". The window is fixed when the
+// Item is created — per /link/token/create, once Transactions has been added
+// to an Item this value cannot be updated — so widening it later means
+// disconnecting the bank and linking it again. We therefore default to the
+// 730-day maximum and let the caller ask for less. Recurring detection also
+// wants >= 180 days to work well, which the default 90 would never satisfy.
+const MAX_HISTORY_DAYS = 730;
+const DEFAULT_HISTORY_DAYS = 730;
+function historyDays(raw) {
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return DEFAULT_HISTORY_DAYS;
+  return Math.min(MAX_HISTORY_DAYS, Math.max(1, Math.round(n)));
+}
+
 app.post('/api/create_link_token', requireAuth, async (req, res) => {
   try {
+    const days = historyDays(req.body?.days);
     const request = {
       user: { client_user_id: req.userId },
       client_name: 'Ledger Vault Sync',
       products: ['transactions'],
       country_codes: COUNTRY_CODES,
       language: 'en',
+      transactions: { days_requested: days },
     };
     if (process.env.PLAID_REDIRECT_URI) {
       request.redirect_uri = process.env.PLAID_REDIRECT_URI;
     }
     const response = await plaidClient.linkTokenCreate(request);
-    res.json({ link_token: response.data.link_token });
+    res.json({ link_token: response.data.link_token, days_requested: days });
   } catch (err) {
     console.error('create_link_token error:', err.response?.data || err.message);
     res.status(500).json({ error: err.response?.data || err.message });
@@ -225,6 +242,7 @@ app.post('/api/create_link_token', requireAuth, async (req, res) => {
 app.post('/api/exchange_public_token', requireAuth, async (req, res) => {
   try {
     const { public_token, institution_name } = req.body;
+    const days = historyDays(req.body?.days);
     const exchange = await plaidClient.itemPublicTokenExchange({ public_token });
     const { access_token, item_id } = exchange.data;
 
@@ -234,6 +252,7 @@ app.post('/api/exchange_public_token', requireAuth, async (req, res) => {
       accessToken: access_token,
       institutionName: institution_name || 'Connected account',
       cursor: null,
+      daysRequested: days,
       connectedAt: new Date().toISOString(),
     };
     saveItems(items);
@@ -376,6 +395,64 @@ app.get('/api/accounts', requireAuth, (req, res) => {
       institution_name: (items[a.itemId] || {}).institutionName || 'Connected account',
     }));
   res.json(list);
+});
+
+// Plaid's own recurring-stream detection, so "Bills & subs" can be built from
+// what actually leaves the account instead of typed in by hand. Streams are
+// derived from the history Plaid holds for the Item, which is why the
+// days_requested window above matters — Plaid advises at least 180 days for
+// good results, and the old 90-day default never reached that.
+//
+// One failing institution shouldn't sink the whole call, so per-item errors
+// are collected and returned alongside whatever did work.
+app.get('/api/recurring', requireAuth, async (req, res) => {
+  const mine = getItemsForUser(req.userId);
+  const accounts = getAccounts();
+  const streams = [];
+  const errors = [];
+
+  const shape = (st, direction, item) => {
+    const acct = accounts[st.account_id] || {};
+    return {
+      stream_id: st.stream_id,
+      direction,
+      description: st.description,
+      merchant_name: st.merchant_name,
+      frequency: st.frequency,
+      status: st.status,
+      is_active: st.is_active,
+      first_date: st.first_date,
+      last_date: st.last_date,
+      predicted_next_date: st.predicted_next_date || null,
+      average_amount: st.average_amount,
+      last_amount: st.last_amount,
+      personal_finance_category: st.personal_finance_category,
+      account_id: st.account_id,
+      account_mask: acct.mask || null,
+      account_name: acct.name || null,
+      institution_name: item.institutionName || 'Connected account',
+    };
+  };
+
+  for (const [, item] of mine) {
+    try {
+      const r = await plaidClient.transactionsRecurringGet({ access_token: item.accessToken });
+      for (const st of r.data.outflow_streams || []) streams.push(shape(st, 'out', item));
+      for (const st of r.data.inflow_streams || []) streams.push(shape(st, 'in', item));
+    } catch (err) {
+      const detail = err.response?.data || {};
+      console.error('recurring error:', detail.error_code || err.message);
+      errors.push({
+        institution: item.institutionName || 'Connected account',
+        error_code: detail.error_code || 'UNKNOWN',
+        message: detail.error_message || err.message,
+      });
+    }
+  }
+
+  // Partial success is still useful; the client shows what came back and
+  // reports which institutions failed.
+  res.json({ streams, errors });
 });
 
 // Return the signed-in user's transactions, newest first.
