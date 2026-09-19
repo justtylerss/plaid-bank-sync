@@ -547,9 +547,6 @@ body.dragging::after { content: "Drop to import"; position: fixed; inset: 12px; 
 .linkish { cursor: pointer; border: 0; font-family: inherit; }
 .linkish:hover { filter: brightness(.95); text-decoration: underline; }
 .btn.biz-on { background: var(--accent-soft); border-color: transparent; color: var(--accent-text); }
-.receipt-row { margin-top: 14px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.receipt-view { display: grid; place-items: center; background: var(--surface-2); border-radius: 16px; padding: 12px; }
-.receipt-view img { max-height: 70vh; border-radius: 10px; }
 
 /* ============ v2: ask ============ */
 .ask h3 { display: flex; align-items: center; gap: 8px; }
@@ -1782,7 +1779,7 @@ const CHG = {};     // change handlers [data-change]
 const INP = {};     // input handlers  [data-input]
 const ui = {
   view: 'dashboard', month: curMonth(), year: curMonth().slice(0, 4),
-  tx: { q: '', scope: 'month', type: '', cat: '', pm: '', biz: '', receipt: '' }, txLimit: 150,
+  tx: { q: '', scope: 'month', type: '', cat: '', pm: '', biz: '' }, txLimit: 150,
   bizTab: 'all', firmYear: 'all', privacy: Prefs.get('privacy', '0') === '1',
   cashflowMonths: Number(Prefs.get('cashflowMonths', '6')) || 6,
   paceRange: Prefs.get('paceRange', 'month'),
@@ -2101,8 +2098,6 @@ function bizBoxHTML(biz, type) {
       ${UI.field('Business use %', `<input class="input" type="number" name="bizPct" min="1" max="100" step="1" value="${esc(b.pct ?? 100)}">`, { cls: 'f-exp', hint: 'Mixed-use items (phone, internet) are often partly deductible.' })}
       ${UI.field('Prop firm', `<input class="input" name="firm" list="dl-firm" maxlength="60" value="${esc(b.firm || '')}" placeholder="e.g. Topstep, Apex">`, { cls: 'f-firm', hint: 'Powers the prop firm ROI tracker.' })}
       <datalist id="dl-firm">${firms.map((f) => `<option value="${esc(f)}">`).join('')}</datalist>
-      <div class="field f-exp f-rcpt"><span class="label">Receipt</span><label class="check" style="height:38px"><input type="checkbox" name="receipt" ${b.receipt ? 'checked' : ''}> Receipt saved</label></div>
-      ${UI.field('Receipt location', `<input class="input" name="rnote" maxlength="120" value="${esc(b.rnote || '')}" placeholder="Gmail, Drive/Receipts…">`, { cls: 'f-exp f-rcpt' })}
     </div>
   </fieldset>`;
 }
@@ -2142,7 +2137,6 @@ function readBiz(fd, type) {
     b, c: type === 'expense' ? String(fd.get('bizC') || '') : '',
     pct: type === 'expense' ? clamp(Math.round(Number(fd.get('bizPct')) || 100), 1, 100) : 100,
     firm: kind === 'trading' ? String(fd.get('firm') || '').trim().slice(0, 60) : '',
-    receipt: type === 'expense' && !!fd.get('receipt'),
     rnote: type === 'expense' ? String(fd.get('rnote') || '').trim().slice(0, 120) : '',
   };
   if (type === 'expense' && !biz.c) throw new Error('Choose a write-off category');
@@ -2151,27 +2145,6 @@ function readBiz(fd, type) {
 function pmOptions(selected) {
   const list = S.paymentMethods.filter((p) => !p.archived || p.id === selected);
   return UI.options(list, selected, { empty: 'Not specified', label: (p) => p.name + (p.last4 ? ` ··${p.last4}` : '') });
-}
-function bindReceiptField(form) {
-  const box = form.querySelector('[data-receipt]'); if (!box) return;
-  const hid = box.querySelector('[name=receiptId]');
-  const view = box.querySelector('[data-rc-view]');
-  const draw = () => {
-    const id = hid.value;
-    view.innerHTML = id
-      ? `<span class="badge good">${icon('receipt')}Receipt attached</span> <button type="button" class="btn sm" data-act="receipt-view" data-rid="${esc(id)}">View</button> <button type="button" class="btn sm ghost" data-rc-remove>Remove</button>`
-      : `<button type="button" class="btn sm" data-rc-add ${Cloud.caps.assets ? '' : 'disabled title="Open this page on claude.ai to store receipt photos"'}>${icon('receipt')}Attach receipt photo</button>`;
-  };
-  box.addEventListener('click', async (e) => {
-    if (e.target.closest('[data-rc-remove]')) { hid.value = ''; draw(); return; }
-    if (!e.target.closest('[data-rc-add]')) return;
-    const f = await pickFile('image/*,application/pdf', false, 'environment');
-    if (!f) return;
-    view.innerHTML = '<span class="muted small">Uploading…</span>';
-    try { hid.value = await uploadReceipt(f); const cb = form.elements.receipt; if (cb) cb.checked = true; } catch (err) { toast(err.message || 'Upload failed', 'err'); }
-    draw();
-  });
-  draw();
 }
 const typeSeg = (name, value, kinds = ['expense', 'income', 'transfer']) => `<div class="seg" role="radiogroup" aria-label="Type">${kinds.map((k) => `<label><input type="radio" name="${name}" value="${k}" ${value === k ? 'checked' : ''}><span>${k[0].toUpperCase() + k.slice(1)}</span></label>`).join('')}</div>`;
 function fallbackCat(type) {
@@ -2201,7 +2174,6 @@ function txModal(tx = null, preset = {}, opts = {}) {
       ${UI.field('Tags', `<input class="input" name="tags" maxlength="120" value="${esc((t.tags || []).join(', '))}" placeholder="Optional, comma separated">`)}
     </div>
     ${bizBoxHTML(t.biz, t.type)}
-    <div class="receipt-row" data-receipt><input type="hidden" name="receiptId" value="${esc(t.receiptId || '')}"><div data-rc-view></div></div>
     <p class="note" data-autofill hidden style="margin-top:12px">${icon('zap')}<span></span></p>
     <label class="check" style="margin-top:14px"><input type="checkbox" name="mkRule"> <span>Always categorize “<span data-rule-desc>${esc(t.desc || 'this description')}</span>” this way <span class="muted">— including ones already in your books</span></span></label>`;
   const footerLeft = fromInbox ? `<button type="button" class="btn danger" data-close data-act="ib-del" data-id="${esc(fromInbox)}">${icon('x')}<span class="hide-sm">Discard</span></button>` : isNew ? '' : `<button type="button" class="btn danger" data-close data-act="tx-del" data-id="${esc(t.id)}">${icon('trash')}<span class="hide-sm">Delete</span></button><button type="button" class="btn ghost" data-close data-act="tx-dup" data-id="${esc(t.id)}">${icon('copy')}<span class="hide-sm">Duplicate</span></button>`;
@@ -2210,7 +2182,6 @@ function txModal(tx = null, preset = {}, opts = {}) {
     title: fromInbox ? 'Review imported transaction' : isNew ? 'New transaction' : 'Edit transaction', body, footer,
     onOpen(form) {
       const el = form.elements;
-      bindReceiptField(form);
       let pctTouched = !isNew;
       const typeNow = () => form.querySelector('[name=type]:checked').value;
       const sync = () => {
@@ -2276,9 +2247,6 @@ function txModal(tx = null, preset = {}, opts = {}) {
         tags: String(fd.get('tags') || '').split(',').map((s) => s.trim()).filter(Boolean).slice(0, 12),
         biz, ...(t.rec ? { rec: t.rec } : {}), ...(t.fitid ? { fitid: t.fitid } : {}),
       };
-      const rid = String(fd.get('receiptId') || '');
-      if (rid) { rec.receiptId = rid; if (rec.biz) { rec.biz.receipt = true; if (!rec.biz.rnote) rec.biz.rnote = 'Photo stored in Ledger Vault'; } }
-      if (t.receiptId && t.receiptId !== rid && Cloud.caps.assets) Cloud.caps.assets.delete(t.receiptId).catch(() => {});
       const another = !!(submitter && submitter.name === 'another');
       let retro = [];
       commit(() => {
@@ -2470,7 +2438,6 @@ function txFiltered() {
     if (f.biz === 'business' && !t.biz) return false;
     if (f.biz === 'personal' && t.biz) return false;
     if (f.biz && f.biz !== 'business' && f.biz !== 'personal' && (!t.biz || t.biz.b !== f.biz)) return false;
-    if (f.receipt === 'missing' && !(t.biz && t.type === 'expense' && !t.biz.receipt)) return false;
     if (q) {
       const c = catOf(t.cat), p = pmOf(t.pm);
       const hay = [t.desc, t.notes, (t.tags || []).map((x) => '#' + x).join(' '), c && c.name, p && p.name, p && p.last4, t.biz && t.biz.firm, money(t.amount), (t.amount / 100).toFixed(2)].join(' ').toLowerCase();
@@ -2483,7 +2450,6 @@ function txRow(t) {
   const c = catOf(t.cat);
   const firm = t.biz && t.biz.firm ? t.biz.firm : '';
   const sub = [firm, t.notes, (t.tags || []).map((x) => '#' + x).join(' ')].filter(Boolean).join(' · ');
-  const noRcpt = t.biz && t.type === 'expense' && !t.biz.receipt;
   const a = t.type === 'income' ? amt(t.amount, { sign: true }, 'pos') : t.type === 'transfer' ? `<span class="muted amt">${esc(money(t.amount))}</span>` : amt(-t.amount);
   return `<tr class="click" data-act="tx-edit" data-id="${t.id}">
     <td class="cb"><input type="checkbox" onclick="event.stopPropagation()" data-change="tx-sel" data-id="${t.id}" ${ui.txSel.has(t.id) ? 'checked' : ''} aria-label="Select ${esc(t.desc)}"></td>
@@ -2491,7 +2457,7 @@ function txRow(t) {
     <td><div class="desc">${esc(t.desc)}</div>${sub ? `<div class="sub hide-sm">${esc(sub)}</div>` : ''}<div class="sub show-sm">${esc([fmtDate(t.date), t.type === 'transfer' ? 'Transfer' : c ? c.name : '', t.biz ? 'Business' : ''].filter(Boolean).join(' · '))}</div></td>
     <td class="hide-sm">${t.type === 'transfer' ? '<span class="badge">Transfer</span>' : UI.cat(c)}</td>
     <td class="hide-md">${UI.pm(pmOf(t.pm))}</td>
-    <td class="hide-sm">${UI.bizBadge(t)}${t.receiptId ? ` <button class="badge good linkish" data-act="receipt-view" data-rid="${esc(t.receiptId)}" title="View receipt">${icon('receipt')}Receipt</button>` : ''}${noRcpt ? ` <span class="badge warn" title="No receipt saved">${icon('receipt')}No receipt</span>` : ''}</td>
+    <td class="hide-sm">${UI.bizBadge(t)}</td>
     <td class="num">${a}</td>
     <td class="actions hide-sm"><span class="row-actions"><button class="btn ghost icon-btn sm" data-act="tx-dup" data-id="${t.id}" aria-label="Duplicate" title="Duplicate">${icon('copy')}</button><button class="btn ghost icon-btn sm" data-act="tx-del" data-id="${t.id}" aria-label="Delete" title="Delete">${icon('trash')}</button></span></td>
   </tr>`;
@@ -2527,7 +2493,6 @@ VIEWS.transactions = {
       ${sel('pm', [['', 'All payment methods'], ['_none', 'Not specified'], ...S.paymentMethods.map((p) => [p.id, p.name + (p.last4 ? ' ··' + p.last4 : '')])])}
       ${sel('biz', [['', 'Business + personal'], ['business', 'Business only'], ['personal', 'Personal only'], ...S.businesses.map((b) => [b.id, b.name])])}
       <select class="select" data-change="txsort" aria-label="Sort transactions">${TX_SORTS.map(([v, label]) => `<option value="${v}" ${ui.txSort === v ? 'selected' : ''}>${esc(label)}</option>`).join('')}</select>
-      ${f.receipt ? `<span class="chip">Missing receipts<button data-act="tx-norcpt" aria-label="Remove filter">${icon('x')}</button></span>` : ''}
     </div><div id="tx-results">${txResultsHTML()}</div>`;
   },
 };
@@ -2536,8 +2501,7 @@ INP['tx-q'] = debounce((el) => { ui.tx.q = el.value; ui.txLimit = 150; refreshTx
 CHG.txsort = (el) => { ui.txSort = el.value; Prefs.set('txSort', el.value); ui.txLimit = 150; refreshTx(); };
 CHG.txf = (el) => { ui.tx[el.dataset.key] = el.value; ui.txLimit = 150; refreshTx(); };
 ACT['tx-more'] = () => { ui.txLimit += 150; refreshTx(); };
-ACT['tx-clear'] = () => { ui.tx = { q: '', scope: 'all', type: '', cat: '', pm: '', biz: '', receipt: '' }; render(); };
-ACT['tx-norcpt'] = () => { ui.tx.receipt = ''; render(); };
+ACT['tx-clear'] = () => { ui.tx = { q: '', scope: 'all', type: '', cat: '', pm: '', biz: '' }; render(); };
 ACT['tx-export'] = async () => {
   const list = txFiltered();
   if (!(await confirmDialog({ title: `Export ${plural(list.length, 'transaction')}?`, message: 'CSV files are <b>not encrypted</b>. Anyone who opens the file can read it. Delete it when you are done with it.', confirmText: 'Export CSV', danger: false }))) return;
@@ -2546,9 +2510,9 @@ ACT['tx-export'] = async () => {
 function exportTxCSV(list, name) {
   const rows = list.map((t) => {
     const c = catOf(t.cat), p = pmOf(t.pm), b = t.biz && bizOf(t.biz.b), bc = t.biz && bizCatOf(t.biz.c);
-    return [t.date, t.type, t.desc, c ? c.name : '', ((t.type === 'expense' ? -t.amount : t.amount) / 100).toFixed(2), p ? p.name : '', p ? p.last4 || '' : '', b ? b.name : '', bc ? bc.name : '', t.biz && t.type === 'expense' ? t.biz.pct : '', t.biz && t.type === 'expense' ? (deductible(t) / 100).toFixed(2) : '', t.biz ? t.biz.firm || '' : '', t.biz && t.type === 'expense' ? (t.biz.receipt ? 'yes' : 'no') : '', t.notes || '', (t.tags || []).join(' ')];
+    return [t.date, t.type, t.desc, c ? c.name : '', ((t.type === 'expense' ? -t.amount : t.amount) / 100).toFixed(2), p ? p.name : '', p ? p.last4 || '' : '', b ? b.name : '', bc ? bc.name : '', t.biz && t.type === 'expense' ? t.biz.pct : '', t.biz && t.type === 'expense' ? (deductible(t) / 100).toFixed(2) : '', t.biz ? t.biz.firm || '' : '', t.notes || '', (t.tags || []).join(' ')];
   });
-  downloadFile(name, toCSV(['Date', 'Type', 'Description', 'Category', 'Amount', 'Paid with', 'Card last 4', 'Business', 'Write-off category', 'Business use %', 'Deductible', 'Prop firm', 'Receipt', 'Notes', 'Tags'], rows, [4, 9, 10]), 'text/csv');
+  downloadFile(name, toCSV(['Date', 'Type', 'Description', 'Category', 'Amount', 'Paid with', 'Card last 4', 'Business', 'Write-off category', 'Business use %', 'Deductible', 'Prop firm', 'Notes', 'Tags'], rows, [4, 9, 10]), 'text/csv');
 }
 
 /* =========================================================
@@ -2941,7 +2905,7 @@ ACT['pm-del'] = async (el) => {
   const ok = await confirmDialog({ title: `Delete ${p.name}?`, message: n ? `${plural(n, 'transaction')} used this card and will show “Not specified”. Archiving keeps that history instead.` : 'This cannot be undone.', confirmText: 'Delete' });
   if (ok) commit(() => { S.paymentMethods = S.paymentMethods.filter((x) => x.id !== p.id); S.transactions.forEach((t) => { if (t.pm === p.id) t.pm = ''; }); S.recurring.forEach((r) => { if (r.pm === p.id) r.pm = ''; }); }, 'Deleted');
 };
-ACT['pm-unassigned'] = () => { ui.tx = { q: '', scope: 'month', type: 'expense', cat: '', pm: '_none', biz: '', receipt: '' }; go('transactions'); };
+ACT['pm-unassigned'] = () => { ui.tx = { q: '', scope: 'month', type: 'expense', cat: '', pm: '_none', biz: '' }; go('transactions'); };
 
 function goalsMini() {
   const gs = S.goals.filter((g) => g.target > 0).slice(0, 3);
@@ -3160,7 +3124,7 @@ function handleExtraction(job, out, meta) {
     date: String(r.date || ''), desc: r.description || r.desc || '', amount: Math.abs(Number(r.amount) || 0),
     type: r.transfer ? 'transfer' : r.direction === 'in' ? 'income' : 'expense',
     category: r.category, business: r.business, writeoff: r.writeoff, pct: r.businessPct, firm: r.firm,
-    conf: Number.isFinite(Number(r.confidence)) ? Number(r.confidence) : null, receiptId: meta.receiptId || undefined,
+    conf: Number.isFinite(Number(r.confidence)) ? Number(r.confidence) : null,
   })).filter((r) => r.amount > 0 && r.date <= addDays(todayStr(), 1));
   return addToInbox(mapped, { ...meta, pm: pm ? pm.id : '', last4 });
 }
@@ -3172,28 +3136,13 @@ async function importImages(files, kind) {
     const group = files.slice(i, i + max);
     const job = newJob(group.length === 1 ? group[0].name || 'Image' : `${group.length} images`, kind);
     try {
-      let receiptId = '';
-      if (kind === 'receipt' && Cloud.caps.assets) {
-        jobUpdate(job, { msg: 'Saving the photo…' });
-        try { receiptId = (await Cloud.caps.assets.upload(group[0])).id; } catch (e) { console.warn('receipt upload', e); }
-      }
       jobUpdate(job, { msg: 'Claude is reading…' });
       const out = await askClaudeJSON(extractPrompt(kind), { images: group, signal: job.ctl.signal });
-      const res = handleExtraction(job, out, { source: kind === 'receipt' ? 'receipt' : 'screenshot', file: group.map((f) => f.name).join(', ').slice(0, 80), receiptId });
-      if (kind === 'receipt' && res.added === 1) linkReceiptMatch();
+      const res = handleExtraction(job, out, { source: kind === 'receipt' ? 'receipt' : 'screenshot', file: group.map((f) => f.name).join(', ').slice(0, 80) });
       finishJob(job, res);
     } catch (e) { failJob(job, e); }
   }
 }
-/* A receipt that matches a transaction already in the books offers "attach" instead of a new entry. */
-function linkReceiptMatch() {
-  const it = S.inbox[0];
-  if (!it || !it.receiptId) return;
-  const cents = itemCents(it);
-  const m = S.transactions.find((t) => t.amount === cents && Math.abs(daysBetween(t.date, it.date)) <= 5 && !t.receiptId);
-  if (m) commit(() => { it.matchTx = m.id; it.skip = true; });
-}
-
 /* ---------- PDF statements ---------- */
 function loadScript(src) {
   return new Promise((res, rej) => { const s = document.createElement('script'); s.src = src; s.onload = res; s.onerror = () => rej(new Error('Could not load ' + src)); document.head.appendChild(s); });
@@ -3366,14 +3315,11 @@ function inboxRowHTML(it) {
   const cats = r.type === 'transfer' ? '' : `<select class="select sm" data-change="ib-cat" data-id="${it.id}" aria-label="Category">${UI.options(catsOfKind(r.type), r.cat, { empty: 'Choose…' })}</select>`;
   const pms = `<select class="select sm" data-change="ib-pm" data-id="${it.id}" aria-label="Paid with">${UI.options(S.paymentMethods.filter((p) => !p.archived || p.id === r.pm), r.pm, { empty: it.pmHint ? `··${it.pmHint} (not saved)` : '—', label: (p) => p.name + (p.last4 ? ' ··' + p.last4 : '') })}</select>`;
   const dup = it.dup && byId(S.transactions, it.dup);
-  const match = it.matchTx && byId(S.transactions, it.matchTx);
   const flags = [
     `<span class="badge src-${esc(it.source)}">${esc(SOURCE_LABEL[it.source] || 'Import')}</span>`,
     it.rule ? `<span class="badge" title="Matched your rule">${icon('zap')}Rule</span>` : '',
     it.conf != null && it.conf < 0.6 ? `<span class="badge warn" title="Claude was not sure about this row">${icon('alert')}Check</span>` : '',
-    it.receiptId ? `<button class="badge good linkish" data-act="receipt-view" data-rid="${esc(it.receiptId)}">${icon('receipt')}Receipt</button>` : '',
     dup ? `<span class="badge crit" title="Already in your books">${icon('copy')}Duplicate of “${esc(dup.desc)}” ${esc(fmtDate(dup.date))}</span>` : '',
-    match ? `<button class="badge good linkish" data-act="ib-attach" data-id="${it.id}">${icon('link')}Attach to “${esc(match.desc)}” ${esc(fmtDate(match.date))}</button>` : '',
   ].filter(Boolean).join(' ');
   const amtHTML = r.type === 'income' ? amt(r.cents, { sign: true }, 'pos') : r.type === 'transfer' ? `<span class="muted amt">${esc(money(r.cents))}</span>` : amt(-r.cents);
   return `<tr class="${sel ? '' : 'off'}">
@@ -3416,7 +3362,7 @@ VIEWS.import = {
     const tiles = [
       ['image', 'Screenshots', 'Bank or card app activity pages. Several at once is fine.', ai && imgReady()],
       ['file', 'PDF statements', 'Monthly bank and card statements, even scanned ones.', ai],
-      ['receipt', 'Receipts', 'Snap a photo. It is stored with the transaction for tax time.', ai && imgReady()],
+      ['receipt', 'Receipts', 'Snap a photo and Claude reads the amount, date and merchant off it.', ai && imgReady()],
       ['list', 'CSV · OFX · QFX', 'Bank downloads (“Download for Quicken” works). No AI needed.', true],
     ];
     return `<section class="card banksync-import s12" style="margin-bottom:18px">
@@ -3715,9 +3661,9 @@ function learnFrom(it, r) {
 function itemToTx(it, i = 0) {
   const r = resolveItem(it);
   const cat = r.type === 'transfer' ? '' : r.cat || fallbackCat(r.type);
-  const biz = r.biz ? { ...r.biz, receipt: !!(it.receiptId || r.biz.receipt), rnote: it.receiptId ? 'Photo stored in Ledger Vault' : (r.biz.rnote || '') } : null;
+  const biz = r.biz ? { ...r.biz } : null;
   const sourceTag = (SOURCE_LABEL[it.source] || 'Imported').toLowerCase();
-  return { id: uid(), created: Date.now() + i, date: r.date, type: r.type, amount: r.cents, desc: r.desc, cat, pm: r.pm, notes: it.notes ? cleanDesc(it.notes) : '', tags: [sourceTag], biz, ...(it.fitid ? { fitid: it.fitid } : {}), ...(it.receiptId ? { receiptId: it.receiptId } : {}) };
+  return { id: uid(), created: Date.now() + i, date: r.date, type: r.type, amount: r.cents, desc: r.desc, cat, pm: r.pm, notes: it.notes ? cleanDesc(it.notes) : '', tags: [sourceTag], biz, ...(it.fitid ? { fitid: it.fitid } : {}) };
 }
 ACT['inbox-approve'] = () => {
   const on = S.inbox.filter((i) => !i.skip);
@@ -3726,7 +3672,7 @@ ACT['inbox-approve'] = () => {
     on.forEach((it, i) => { const r = resolveItem(it); learnFrom(it, r); S.transactions.push(itemToTx(it, i)); });
     const ids = new Set(on.map((i) => i.id));
     S.inbox = S.inbox.filter((i) => !ids.has(i.id));
-  }, `Added ${plural(on.length, 'transaction')} to your books`, { label: 'View', fn: () => { ui.tx = { q: '#imported', scope: 'all', type: '', cat: '', pm: '', biz: '', receipt: '' }; go('transactions'); } });
+  }, `Added ${plural(on.length, 'transaction')} to your books`, { label: 'View', fn: () => { ui.tx = { q: '#imported', scope: 'all', type: '', cat: '', pm: '', biz: '' }; go('transactions'); } });
 };
 ACT['inbox-discard'] = async () => {
   const on = S.inbox.filter((i) => !i.skip);
@@ -3736,11 +3682,6 @@ ACT['inbox-discard'] = async () => {
 };
 ACT['inbox-toggle'] = () => { const all = S.inbox.every((i) => !i.skip); commit(() => S.inbox.forEach((i) => { i.skip = all; })); };
 ACT['ib-del'] = (el) => { const it = ibItem(el.dataset.id); if (!it) return; const idx = S.inbox.indexOf(it); commit(() => S.inbox.splice(idx, 1), 'Discarded', { label: 'Undo', fn: () => commit(() => S.inbox.splice(idx, 0, it)) }); };
-ACT['ib-attach'] = (el) => {
-  const it = ibItem(el.dataset.id); const t = it && byId(S.transactions, it.matchTx);
-  if (!it || !t) return;
-  commit(() => { t.receiptId = it.receiptId; if (t.biz) { t.biz.receipt = true; t.biz.rnote = 'Photo stored in Ledger Vault'; } S.inbox = S.inbox.filter((x) => x.id !== it.id); }, `Receipt attached to ${t.desc}`);
-};
 CHG['ib-sel'] = (el) => { const it = ibItem(el.dataset.id); if (it) commit(() => { it.skip = !el.checked; }); };
 CHG['ib-learn'] = (el) => commit(() => { S.settings.learnRules = el.checked; });
 CHG['ib-cat'] = (el) => { const it = ibItem(el.dataset.id); if (it) commit(() => { it.cat = el.value; it.edited = true; delete it.category; }); };
@@ -3782,17 +3723,6 @@ ${JSON.stringify(list)}`;
   } catch (e) { failJob(job, e); }
 };
 
-/* ---------- receipts ---------- */
-const receiptURL = (id) => '/_blob/' + encodeURIComponent(id);
-ACT['receipt-view'] = (el) => {
-  const id = el.dataset.rid; if (!id) return;
-  openModal({ title: 'Receipt', size: 'wide', footer: '<span class="spacer"></span><button type="button" class="btn" data-close>Close</button>', body: `<div class="receipt-view"><img src="${esc(receiptURL(id))}" alt="Receipt photo"></div>` });
-};
-async function uploadReceipt(file) {
-  if (!Cloud.caps.assets) throw new Error('Receipt photos can be stored when this page is open on claude.ai');
-  const r = await Cloud.caps.assets.upload(file);
-  return r.id;
-}
 
 /* ---------- Ask about your money ---------- */
 function moneyContext() {
@@ -3814,7 +3744,7 @@ function moneyContext() {
     const tx = S.transactions.filter((t) => t.biz && t.biz.b === b.id && t.date.startsWith(y));
     const bc = new Map();
     for (const t of tx.filter((x) => x.type === 'expense')) { const n = (bizCatOf(t.biz.c) || { name: 'Other' }).name; bc.set(n, (bc.get(n) || 0) + deductible(t)); }
-    lines.push(`Business "${b.name}" ${y}: income ${Math.round(sum(tx.filter((t) => t.type === 'income'), (t) => t.amount) / 100)}, deductible ${Math.round(sum(tx, deductible) / 100)} (${[...bc].map(([k, v]) => `${k} ${Math.round(v / 100)}`).join('; ')}); missing receipts ${tx.filter((t) => t.type === 'expense' && !t.biz.receipt).length}`);
+    lines.push(`Business "${b.name}" ${y}: income ${Math.round(sum(tx.filter((t) => t.type === 'income'), (t) => t.amount) / 100)}, deductible ${Math.round(sum(tx, deductible) / 100)} (${[...bc].map(([k, v]) => `${k} ${Math.round(v / 100)}`).join('; ')})`);
   }
   const firms = propFirmStats('all');
   if (firms.length) lines.push('Prop firms (all time, paid / payouts): ' + firms.map((f) => `${f.name} ${Math.round(f.spent / 100)} / ${Math.round(f.payouts / 100)} (${f.evals} evals)`).join('; '));
@@ -3926,14 +3856,12 @@ VIEWS.business = {
       </tbody><tfoot><tr><td>Total</td><td class="num">${sum(catRows, ([, v]) => v.n)}</td><td class="num hide-sm">${amt(sum(catRows, ([, v]) => v.gross))}</td><td class="num">${amt(d.ded + d.mileDed)}</td></tr></tfoot></table></div></section>`;
 
     // attention
-    const noRcpt = d.exp.filter((t) => !t.biz.receipt);
     const bigEquip = d.exp.filter((t) => { const bc = bizCatOf(t.biz.c); return bc && bc.depreciable && t.amount >= 250000; });
     const today = todayStr();
     const td = taxDates(y);
     const nextQ = td.find(([, date]) => date >= today);
     const attention = `<section class="card s5"><header class="card-h"><div><h3>Tax-time checklist</h3><p class="card-sub">Things worth fixing before you hand this to a CPA</p></div></header>
       <div class="list">
-        <div class="list-item"><div class="ico-tile" style="--dot:${noRcpt.length ? 'var(--warn)' : 'var(--pos)'}">${icon(noRcpt.length ? 'receipt' : 'check')}</div><div class="li-main"><div class="li-title">${noRcpt.length ? `${plural(noRcpt.length, 'expense')} missing a receipt` : 'Every expense has a receipt'}</div><div class="li-sub">${noRcpt.length ? `<span class="amt">${esc(money(sum(noRcpt, (t) => t.amount)))}</span> without documentation` : 'Nice.'}</div></div>${noRcpt.length ? '<button class="btn sm" data-act="biz-norcpt">Review</button>' : ''}</div>
         ${bigEquip.length ? `<div class="list-item"><div class="ico-tile" style="--dot:var(--c6)">${icon('info')}</div><div class="li-main"><div class="li-title">${plural(bigEquip.length, 'equipment purchase')} over $2,500</div><div class="li-sub">May need depreciation or a Section 179 election. Flag it for your CPA.</div></div></div>` : ''}
         <div class="list-item"><div class="ico-tile" style="--dot:var(--c0)">${icon('calendar')}</div><div class="li-main"><div class="li-title">${nextQ ? `Next estimated payment: ${esc(nextQ[0])} · ${esc(fmtDate(nextQ[1], { year: true }))}` : `All ${esc(y)} estimated payment dates have passed`}</div><div class="li-sub">Federal quarterly dates: ${td.map(([q, dt]) => `${q} ${fmtDate(dt, { year: false })}`).join(' · ')} (shift if they land on a weekend)</div></div></div>
         <div class="list-item"><div class="ico-tile" style="--dot:var(--accent)">${icon('target')}</div><div class="li-main"><div class="li-title">Set aside ≈ <span class="amt">${esc(money(d.setAside))}</span></div><div class="li-sub">${esc(S.settings.taxPct)}% of estimated net profit · change the rate in Settings</div></div><button class="btn sm ghost" data-act="go" data-view="goals">Goals</button></div>
@@ -3948,16 +3876,15 @@ VIEWS.business = {
     // itemized
     const items = sortTx(d.txs).slice(0, 25);
     const itemized = `<section class="card flush s12"><header class="card-h" style="padding:16px 18px 6px"><div><h3>Itemized</h3><p class="card-sub">${plural(d.txs.length, 'business transaction')} in ${esc(y)}${d.txs.length > 25 ? ' · latest 25' : ''}</p></div><div class="card-actions no-print"><button class="btn sm ghost" data-act="biz-all">Open in Transactions</button></div></header>
-      <div class="table-wrap"><table class="table"><thead><tr><th>Date</th><th>Description</th><th class="hide-sm">Write-off category</th><th class="hide-md">Paid with</th><th class="num">Amount</th><th class="num hide-sm">Deductible</th><th class="hide-sm">Receipt</th></tr></thead><tbody>
-      ${items.map((t) => `<tr class="click" data-act="tx-edit" data-id="${t.id}"><td class="nowrap muted">${fmtDate(t.date)}</td><td><div class="desc">${esc(t.desc)}</div><div class="sub">${esc([(bizOf(t.biz.b) || {}).name, t.biz.firm].filter(Boolean).join(' · '))}</div></td><td class="hide-sm">${t.type === 'income' ? '<span class="badge good">Income</span>' : esc((bizCatOf(t.biz.c) || { name: '—' }).name)}</td><td class="hide-md">${UI.pm(pmOf(t.pm))}</td><td class="num">${t.type === 'income' ? amt(t.amount, { sign: true }, 'pos') : amt(t.amount)}</td><td class="num hide-sm">${t.type === 'expense' ? amt(deductible(t)) : ''}</td><td class="hide-sm">${t.type !== 'expense' ? '' : t.biz.receipt ? `<span class="badge good">${icon('check')}Saved</span>` : `<span class="badge warn">${icon('alert')}Missing</span>`}</td></tr>`).join('')}
+      <div class="table-wrap"><table class="table"><thead><tr><th>Date</th><th>Description</th><th class="hide-sm">Write-off category</th><th class="hide-md">Paid with</th><th class="num">Amount</th><th class="num hide-sm">Deductible</th></tr></thead><tbody>
+      ${items.map((t) => `<tr class="click" data-act="tx-edit" data-id="${t.id}"><td class="nowrap muted">${fmtDate(t.date)}</td><td><div class="desc">${esc(t.desc)}</div><div class="sub">${esc([(bizOf(t.biz.b) || {}).name, t.biz.firm].filter(Boolean).join(' · '))}</div></td><td class="hide-sm">${t.type === 'income' ? '<span class="badge good">Income</span>' : esc((bizCatOf(t.biz.c) || { name: '—' }).name)}</td><td class="hide-md">${UI.pm(pmOf(t.pm))}</td><td class="num">${t.type === 'income' ? amt(t.amount, { sign: true }, 'pos') : amt(t.amount)}</td><td class="num hide-sm">${t.type === 'expense' ? amt(deductible(t)) : ''}</td></tr>`).join('')}
       </tbody></table></div></section>`;
     return `${toolbar}${stats}<div class="grid">${catCard}${attention}${monthly}${itemized}</div>${disclaimer()}`;
   },
 };
 const disclaimer = () => `<p class="note" style="margin-top:18px">${icon('info')}<span>Organizing tool, not tax advice. Deductibility depends on your situation (for example, whether trading is a business for you, and how prop firm payouts are reported). Confirm categories and amounts with a CPA.</span></p>`;
 ACT['biz-print'] = () => window.print();
-ACT['biz-norcpt'] = () => { ui.tx = { q: '', scope: 'all', type: 'expense', cat: '', pm: '', biz: 'business', receipt: 'missing' }; go('transactions'); };
-ACT['biz-all'] = () => { ui.tx = { q: '', scope: 'all', type: '', cat: '', pm: '', biz: ui.bizTab === 'all' ? 'business' : ui.bizTab, receipt: '' }; go('transactions'); };
+ACT['biz-all'] = () => { ui.tx = { q: '', scope: 'all', type: '', cat: '', pm: '', biz: ui.bizTab === 'all' ? 'business' : ui.bizTab }; go('transactions'); };
 ACT['biz-log'] = () => {
   const b = bizOf(ui.bizTab) || S.businesses[0];
   if (!b) { toast('Add a business in Settings first', 'err'); return; }
@@ -3972,10 +3899,10 @@ ACT['biz-export'] = async () => {
   if (!ok) return;
   const rows = sortTx(d.txs).reverse().map((t) => {
     const p = pmOf(t.pm), b = bizOf(t.biz.b), bc = bizCatOf(t.biz.c);
-    return [t.date, t.type === 'income' ? 'Income' : 'Expense', b ? b.name : '', t.type === 'income' ? '' : bc ? bc.name : '', t.desc, t.biz.firm || '', p ? p.name : '', p ? p.last4 || '' : '', (t.amount / 100).toFixed(2), t.type === 'expense' ? t.biz.pct : '', t.type === 'expense' ? (deductible(t) / 100).toFixed(2) : '', t.type === 'expense' ? (bc && bc.depreciable ? 'yes' : 'no') : '', t.type === 'expense' ? (t.biz.receipt ? 'yes' : 'no') : '', t.biz.rnote || '', t.notes || ''];
+    return [t.date, t.type === 'income' ? 'Income' : 'Expense', b ? b.name : '', t.type === 'income' ? '' : bc ? bc.name : '', t.desc, t.biz.firm || '', p ? p.name : '', p ? p.last4 || '' : '', (t.amount / 100).toFixed(2), t.type === 'expense' ? t.biz.pct : '', t.type === 'expense' ? (deductible(t) / 100).toFixed(2) : '', t.type === 'expense' ? (bc && bc.depreciable ? 'yes' : 'no') : '', t.notes || ''];
   });
   const tag = ui.bizTab === 'all' ? 'all' : norm((bizOf(ui.bizTab) || {}).name || 'biz').replace(/[^a-z0-9]+/g, '-');
-  const saved = await downloadFile(`business-${y}-${tag}.csv`, toCSV(['Date', 'Type', 'Business', 'Write-off category', 'Description', 'Prop firm / vendor', 'Paid with', 'Card last 4', 'Amount', 'Business use %', 'Deductible amount', 'Possible depreciation', 'Receipt saved', 'Receipt location', 'Notes'], rows, [8, 9, 10]), 'text/csv');
+  const saved = await downloadFile(`business-${y}-${tag}.csv`, toCSV(['Date', 'Type', 'Business', 'Write-off category', 'Description', 'Prop firm / vendor', 'Paid with', 'Card last 4', 'Amount', 'Business use %', 'Deductible amount', 'Possible depreciation', 'Notes'], rows, [8, 9, 10]), 'text/csv');
   if (saved && d.trips.length) await downloadFile(`mileage-${y}-${tag}.csv`, mileageCSV(d.trips), 'text/csv');
 };
 function mileageCSV(trips) {
@@ -4095,7 +4022,7 @@ ACT['firm-fix-all'] = () => {
   commit(() => { for (const p of clear) if (attributeToFirm(p.t, null)) n++; }, '');
   toast(`${plural(n, 'transaction')} added to your prop firm totals`);
 };
-ACT['firm-open'] = (el) => { ui.tx = { q: el.dataset.firm, scope: 'all', type: '', cat: '', pm: '', biz: 'business', receipt: '' }; go('transactions'); };
+ACT['firm-open'] = (el) => { ui.tx = { q: el.dataset.firm, scope: 'all', type: '', cat: '', pm: '', biz: 'business' }; go('transactions'); };
 ACT['firm-log'] = (el) => {
   const b = S.businesses.find((x) => x.kind === 'trading');
   if (!b) { toast('Add a business with type “Trading” in Settings first', 'err'); return; }
@@ -4606,7 +4533,6 @@ function ruleModal(r = null) {
       form.addEventListener('change', (e) => { if (['cat', 'isBiz', 'bizB'].includes(e.target.name)) bizSync(form, k()); });
       bizSync(form, k());
       if (x.biz && x.biz.c) form.elements.bizC.value = x.biz.c;
-      $$('.f-rcpt', form).forEach((e) => e.remove());
     },
     onSubmit(fd) {
       const match = String(fd.get('match') || '').trim().toLowerCase();
