@@ -63,6 +63,16 @@ weakest enrolled method, and the weakest enrolled method is what an attacker
 uses. TOTP is not phishing-resistant; a convincing fake login page can still
 relay a code.
 
+**Dependencies.** Dependabot is configured for weekly npm checks
+(`.github/dependabot.yml`) and raises a pull request when a dependency has a
+known vulnerability. Every dependency is version-pinned and a lockfile is
+committed, so a deploy installs what was reviewed rather than whatever is
+newest.
+
+**Patching.** Critical and high severity findings are applied within seven
+days. Everything else lands with the next change. This is an SLA one person
+can actually keep, which is the only kind worth writing down.
+
 **Secrets.** Held in environment variables, never in the repository. `.env` is
 gitignored and has been verified as untracked. No secret is written to logs.
 
@@ -89,7 +99,10 @@ Stated plainly so that no one relies on a control that does not exist.
   application.
 - **No audit logging.** Access is not recorded, so unauthorised access would
   not leave a trail in the application.
-- **No automated dependency scanning, monitoring or alerting.**
+- **No runtime monitoring or alerting.** Dependency scanning exists (section
+  2); nothing watches the running application.
+- **No end-of-life software tracking.** Dependabot flags vulnerable versions,
+  not unsupported ones. Node major versions are tracked by hand.
 - **No formal access review**, because there are exactly two accounts and one
   administrator.
 - **No penetration testing or third-party assessment.**

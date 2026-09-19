@@ -1,0 +1,24 @@
+# Dependency updates for a single-maintainer app.
+#
+# Security fixes arrive as their own PRs regardless of this file, but only once
+# "Dependabot alerts" and "Dependabot security updates" are enabled in
+# Settings -> Code security. This file covers the other half: scheduled checks,
+# so a dependency does not sit three years stale until a CVE forces the issue.
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    # One PR at a time. This is a one-person project; a queue of ten open
+    # update PRs gets ignored, which is worse than none.
+    open-pull-requests-limit: 3
+    groups:
+      # Patch and minor bumps are routine and land together. Majors arrive
+      # alone so they actually get read.
+      routine:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+    commit-message:
+      prefix: "deps"
