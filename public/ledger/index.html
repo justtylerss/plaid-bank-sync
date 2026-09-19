@@ -687,6 +687,47 @@ body.compact .table td { padding-top: 8px; padding-bottom: 8px; }
   .figures { gap: var(--sp-4); }
 }
 
+/* ============ Goal listing input ============ */
+.unfurl-row { display: flex; gap: var(--sp-2); align-items: center; margin-bottom: var(--sp-3); }
+.unfurl-row .search { min-width: 0; }
+.unfurl-preview { display: flex; gap: var(--sp-3); align-items: center; padding: var(--sp-3);
+  border: 1px solid var(--card-border); border-radius: var(--radius-sm); background: var(--surface-2);
+  margin-bottom: var(--sp-3); animation: swapIn var(--dur-2) var(--ease-out); }
+.unfurl-preview img { width: 64px; height: 64px; object-fit: contain; border-radius: 8px;
+  background: var(--surface); flex: none; }
+
+/* ============ Goals: compact and detailed ============ */
+.goal-grid.compact { grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); }
+.card.goal.compact { display: flex; align-items: center; gap: var(--sp-3); padding: var(--sp-3) var(--sp-4); }
+.goal-compact-main { min-width: 0; flex: 1; display: grid; gap: 6px; }
+.goal-compact-top { display: flex; align-items: baseline; justify-content: space-between; gap: var(--sp-3); }
+.goal-compact-top h3 { font-size: 14px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.goal-thumb.lg { width: 52px; height: 52px; border-radius: 10px; }
+.dot.lg { width: 12px; height: 12px; flex: none; }
+.btn.icon-btn.lg { width: 40px; height: 40px; border-radius: 999px; }
+.btn.icon-btn.lg svg { width: 20px; height: 20px; }
+
+/* ============ Sidebar never scrolls sideways ============
+   A nav item that is too wide should ellipsis, not push the rail out and make
+   the whole sidebar draggable. Every flex child needs min-width:0 for that to
+   work, since flex items default to their content width. */
+.sidebar { overflow-x: hidden; }
+.nav, .nav-group, .side-foot { min-width: 0; }
+.nav a { min-width: 0; }
+.nav a > span:not(.count) { min-width: 0; flex: 1; }
+.side-actions { min-width: 0; }
+.side-actions .btn { min-width: 0; padding-left: var(--sp-2); padding-right: var(--sp-2); }
+.side-actions .btn span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.save-status { min-width: 0; }
+.save-status .t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sidebar .brand span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+
+@media (max-width: 640px) {
+  .goal-grid.compact { grid-template-columns: 1fr; }
+  .unfurl-row { flex-wrap: wrap; }
+  .unfurl-row .search { flex: 1 1 100%; }
+}
+
 /* ============ Motion ============
    Applied on navigation only, never on every re-render. Re-animating cards
    each time a filter changes is the single fastest way to make an interface
@@ -2522,6 +2563,7 @@ const ui = {
   paceRange: Prefs.get('paceRange', 'month'),
   theme: Prefs.get('theme', 'system'),
   motion: Prefs.get('motion', 'full'),
+  goalView: Prefs.get('goalView', 'compact'),
   txFilters: Prefs.get('txFilters', '0') === '1',
   txSort: Prefs.get('txSort', 'date-desc'),
   animateIn: true,
@@ -5548,24 +5590,44 @@ VIEWS.goals = {
   title: 'Goals',
   render() {
     const avg = avgMonthlyExpense(3);
-    const templates = `<button class="btn sm" data-act="goal-add" data-t="emergency">Emergency fund${avg ? ` (${esc(money(avg * 6, { whole: true }))})` : ''}</button><button class="btn sm" data-act="goal-add" data-t="tax">Tax set-aside</button><button class="btn sm" data-act="goal-add" data-t="">Custom goal</button>`;
-    if (!S.goals.length) return `<div class="card">${UI.empty('target', 'Save with a target', 'Emergency fund, tax set-aside, a new trading rig. See exactly how much to put away each month.', templates)}</div>`;
+    /* Two ways to look at the same list. Compact when you just want to see how
+       close everything is; detailed when a goal is a thing you are picturing
+       and the photo is the point. The preset buttons are gone — one plus is
+       clearer than a row of half-guesses about what you might be saving for. */
+    if (!S.goals.length) {
+      return `<div class="toolbar"><span class="spacer"></span><button class="btn primary icon-btn lg" data-act="goal-add" aria-label="New goal" title="New goal">${icon('plus')}</button></div>`
+        + `<div class="card">${UI.empty('target', 'Save for something', 'Paste a link to what you want and the name, picture and price fill themselves in.', '<button class="btn primary sm" data-act="goal-add">New goal</button>')}</div>`;
+    }
+    const detailed = ui.goalView === 'detailed';
+    const viewToggle = `<div class="seg" role="group" aria-label="Goal layout">
+      <button type="button" class="${detailed ? '' : 'active'}" data-act="goal-view" data-v="compact">${icon('list')}Compact</button>
+      <button type="button" class="${detailed ? 'active' : ''}" data-act="goal-view" data-v="detailed">${icon('dashboard')}Detailed</button>
+    </div>`;
     const cards = S.goals.map((g) => {
-      const r = g.target ? clamp(g.saved / g.target, 0, 1) : 0;
-      const left = Math.max(0, g.target - g.saved);
-      const m = monthsUntil(g.deadline);
-      const perMonth = left > 0 && m != null ? Math.ceil(left / Math.max(1, m)) : 0;
+      const f = goalFacts(g);
+      const img = safeUrl(g.image);
+      if (!detailed) {
+        return `<section class="card goal compact click" data-act="goal-open" data-id="${g.id}">
+          ${img ? `<span class="goal-thumb lg"><img src="${esc(img)}" alt="" referrerpolicy="no-referrer" onerror="this.closest('.goal-thumb').remove()"></span>` : `<i class="dot lg" style="--dot:${colorVar(g.color)}"></i>`}
+          <div class="goal-compact-main">
+            <div class="goal-compact-top"><h3>${esc(g.name)}</h3><span class="amt stat-md">${esc(money(g.target, { whole: true }))}</span></div>
+            <div class="progress sm"><i style="width:${f.ratio * 100}%;--bar:${colorVar(g.color)}"></i></div>
+            <div class="goal-facts"><span>${pct(f.ratio)} saved</span><span>${f.done ? `<b class="pos">Reached</b>` : `<b class="amt">${esc(money(f.left, { whole: true }))}</b> to go`}</span></div>
+          </div>
+        </section>`;
+      }
       return `<section class="card goal click" data-act="goal-open" data-id="${g.id}">
-        ${safeUrl(g.image) ? `<div class="goal-cover"><img src="${esc(safeUrl(g.image))}" alt="" referrerpolicy="no-referrer" onerror="this.closest('.goal-cover').remove()"></div>` : ''}
-        <div class="goal-top"><div><div class="row" style="gap:8px"><i class="dot" style="--dot:${colorVar(g.color)}"></i><h3 style="font-size:15px">${esc(g.name)}</h3></div><div class="goal-amt amt" style="margin-top:8px">${esc(money(g.saved, { whole: true }))} <small>of ${esc(money(g.target, { whole: true }))}</small></div></div>
+        ${img ? `<div class="goal-cover"><img src="${esc(img)}" alt="" referrerpolicy="no-referrer" onerror="this.closest('.goal-cover').remove()"></div>` : ''}
+        <div class="goal-top"><div><div class="row" style="gap:8px"><i class="dot" style="--dot:${colorVar(g.color)}"></i><h3 style="font-size:15px">${esc(g.name)}</h3></div><div class="goal-amt amt">${esc(money(g.target))}</div></div>
         <button class="btn ghost icon-btn sm" data-act="goal-edit" data-id="${g.id}" aria-label="Edit goal">${icon('edit')}</button></div>
-        <div class="progress"><i style="width:${r * 100}%;--bar:${colorVar(g.color)}"></i></div>
-        <div class="goal-facts"><span><b>${pct(r)}</b> saved</span><span>${left ? `<b class="amt">${esc(money(left, { whole: true }))}</b> to go` : `<b class="pos">${icon('check')} Reached</b>`}</span></div>
-        <div class="goal-facts"><span>${g.deadline ? `By ${esc(fmtDate(g.deadline, { year: true }))}` : 'No deadline'}</span><span>${perMonth ? `<b class="amt">${esc(money(perMonth, { whole: true }))}</b>/mo needed` : ''}</span></div>
-        <div class="row"><button class="btn sm" data-act="goal-add-money" data-id="${g.id}">${icon('plus')}Add money</button><button class="btn sm ghost" data-act="goal-add-money" data-id="${g.id}" data-neg="1">Withdraw</button></div>
+        <div class="progress"><i style="width:${f.ratio * 100}%;--bar:${colorVar(g.color)}"></i></div>
+        <div class="goal-facts"><span><b>${pct(f.ratio)}</b> saved</span><span>${f.left ? `<b class="amt">${esc(money(f.left, { whole: true }))}</b> to go` : `<b class="pos">${icon('check')} Reached</b>`}</span></div>
+        <div class="goal-facts"><span>${g.deadline ? `By ${esc(fmtDate(g.deadline, { year: true }))}` : 'No deadline'}</span><span>${f.perMonth ? `<b class="amt">${esc(money(f.perMonth, { whole: true }))}</b>/mo` : ''}</span></div>
+        <div class="row"><button class="btn sm" data-act="goal-add-money" data-id="${g.id}">${icon('plus')}Add money</button></div>
       </section>`;
     }).join('');
-    return `<div class="toolbar"><span class="spacer"></span>${templates}</div><div class="goal-grid">${cards}</div>`;
+    return `<div class="toolbar">${viewToggle}<span class="spacer"></span><button class="btn primary icon-btn lg" data-act="goal-add" aria-label="New goal" title="New goal">${icon('plus')}</button></div>`
+      + `<div class="goal-grid ${detailed ? '' : 'compact'}">${cards}</div>`;
   },
 };
 // A goal can be a thing rather than a number — a car, a rig, a watch — and a
@@ -5596,6 +5658,7 @@ function goalFacts(g) {
   return { ratio, left, months, perMonth, done: left === 0 && g.target > 0 };
 }
 
+ACT['goal-view'] = (el) => { ui.goalView = el.dataset.v; Prefs.set('goalView', ui.goalView); ui.swapIn = true; render(); };
 ACT['goal-open'] = (el) => { const g = byId(S.goals, el.dataset.id); if (g) goalDetail(g); };
 
 function goalDetail(g) {
@@ -5663,17 +5726,60 @@ function goalModal(g = null, preset = {}) {
   const x = g || { name: '', target: 0, saved: 0, deadline: '', url: '', image: '', notes: '', color: S.goals.length % 8, ...preset };
   openModal({
     title: isNew ? 'New goal' : 'Edit goal',
-    body: `<div class="form-grid">
+    body: `
+      <div class="unfurl-row">
+        <div class="search" style="flex:1">${icon('link')}<input class="input" name="url" maxlength="400" value="${esc(x.url || '')}" placeholder="Paste a link to the thing you want"></div>
+        <button type="button" class="btn" data-unfurl>${icon('sparkle')}Fill in</button>
+      </div>
+      <div class="unfurl-preview" data-unfurl-preview hidden></div>
+      <div class="form-grid">
       ${UI.field('Name', `<input class="input" name="name" maxlength="50" value="${esc(x.name)}" required>`, { cls: 'full' })}
-      ${UI.field('Target', UI.moneyInput('target', x.target, { required: true }))}
+      ${UI.field('Price', UI.moneyInput('target', x.target, { required: true }))}
       ${UI.field('Saved so far', UI.moneyInput('saved', x.saved))}
-      ${UI.field('Target date', `<input class="input" type="date" name="deadline" value="${esc(x.deadline || '')}">`, { hint: 'Optional. Used to work out the monthly amount.' })}
+      ${UI.field('Target date', `<input class="input" type="date" name="deadline" value="${esc(x.deadline || '')}">`, { hint: 'Optional. Sets the monthly amount.' })}
       <div class="field"><span class="label">Color</span>${UI.colorPick('color', x.color)}</div>
-      ${UI.field('Link to the listing', `<input class="input" name="url" maxlength="400" value="${esc(x.url || '')}" placeholder="https://…">`, { cls: 'full', hint: 'The page you would buy it from.' })}
-      ${UI.field('Picture', `<input class="input" name="image" maxlength="400" value="${esc(x.image || '')}" placeholder="https://… image address">`, { cls: 'full', hint: 'Right-click the product photo and copy the image address.' })}
+      ${UI.field('Picture', `<input class="input" name="image" maxlength="400" value="${esc(x.image || '')}" placeholder="Filled in from the link, or paste an image address">`, { cls: 'full' })}
       ${UI.field('Notes', `<input class="input" name="notes" maxlength="300" value="${esc(x.notes || '')}" placeholder="Spec, colour, why this one…">`, { cls: 'full' })}
     </div>${preset.hint ? `<p class="note" style="margin-top:14px">${icon('info')}<span>${preset.hint}</span></p>` : ''}`,
     footerLeft: isNew ? '' : `<button type="button" class="btn danger" data-close data-act="goal-del" data-id="${x.id}">${icon('trash')}Delete</button>`,
+    onOpen(form) {
+      // Reading the page is the server's job — the browser cannot fetch another
+      // origin. Whatever comes back only fills fields that are still empty, so
+      // it never overwrites something already typed.
+      const btn = form.querySelector('[data-unfurl]');
+      const box = form.querySelector('[data-unfurl-preview]');
+      const run = async () => {
+        const url = form.elements.url.value.trim();
+        if (!url) { toast('Paste a link first', 'err'); return; }
+        btn.disabled = true;
+        const label = btn.innerHTML;
+        btn.innerHTML = '<span class="spin"></span>Reading…';
+        try {
+          const res = await fetch('/api/unfurl', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url }),
+          });
+          const d = await res.json();
+          if (!res.ok) throw new Error(d.message || 'Could not read that page.');
+          if (d.title && !form.elements.name.value.trim()) form.elements.name.value = d.title;
+          if (d.image) form.elements.image.value = d.image;
+          if (d.price && !parseMoney(form.elements.target.value)) form.elements.target.value = d.price.toFixed(2);
+          if (d.image || d.title) {
+            box.hidden = false;
+            box.innerHTML = `${d.image ? `<img src="${esc(d.image)}" alt="" referrerpolicy="no-referrer" onerror="this.remove()">` : ''}`
+              + `<div><div class="li-title">${esc(d.title || 'Untitled')}</div>`
+              + `<div class="li-sub">${esc(d.site)}${d.price ? ` · ${esc(money(Math.round(d.price * 100)))}` : ''}</div></div>`;
+          }
+          toast(d.title ? `Filled in from ${d.site}` : `Read ${d.site}`);
+        } catch (e) {
+          toast(e.message || 'Could not read that page.', 'err');
+        } finally {
+          btn.disabled = false; btn.innerHTML = label;
+        }
+      };
+      btn.addEventListener('click', run);
+      form.elements.url.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); run(); } });
+    },
     onSubmit(fd) {
       const target = parseMoney(fd.get('target')), saved = parseMoney(fd.get('saved') || '0');
       const name = String(fd.get('name') || '').trim();

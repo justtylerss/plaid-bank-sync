@@ -631,6 +631,158 @@ app.get('/api/liabilities', requireAuth, async (req, res) => {
   res.json({ cards, errors });
 });
 
+/* =========================================================
+   Unfurl a product page
+   Paste a link and the goal fills itself in. The server does the fetching
+   because the browser cannot read another origin's page.
+
+   That makes this endpoint a request-forger's dream if it is naive: it takes a
+   URL from a logged-in user and fetches it from inside the host's network,
+   where private addresses and cloud metadata endpoints live. So the host is
+   resolved first and refused if it points anywhere internal, redirects are
+   followed by hand with the same check applied at every hop, and the read is
+   capped in both time and bytes.
+   ========================================================= */
+const dns = require('dns').promises;
+const net = require('net');
+
+const UNFURL_TIMEOUT_MS = 6000;
+const UNFURL_MAX_BYTES = 512 * 1024;
+const UNFURL_MAX_REDIRECTS = 3;
+
+function isPrivateAddress(ip) {
+  const v = net.isIP(ip);
+  if (v === 4) {
+    const p = ip.split('.').map(Number);
+    if (p[0] === 10 || p[0] === 127 || p[0] === 0) return true;
+    if (p[0] === 172 && p[1] >= 16 && p[1] <= 31) return true;
+    if (p[0] === 192 && p[1] === 168) return true;
+    if (p[0] === 169 && p[1] === 254) return true;   // link-local, incl. cloud metadata
+    if (p[0] >= 224) return true;                     // multicast and reserved
+    return false;
+  }
+  if (v === 6) {
+    const l = ip.toLowerCase();
+    if (l === '::1' || l === '::') return true;
+    if (l.startsWith('fe80') || l.startsWith('fc') || l.startsWith('fd')) return true;
+    // IPv4 mapped, e.g. ::ffff:127.0.0.1
+    const m = l.match(/::ffff:(\d+\.\d+\.\d+\.\d+)$/);
+    if (m) return isPrivateAddress(m[1]);
+    return false;
+  }
+  return true;   // unresolvable is not safe
+}
+
+async function assertPublicUrl(raw) {
+  let u;
+  try { u = new URL(raw); } catch (e) { throw new Error('That does not look like a link.'); }
+  if (u.protocol !== 'http:' && u.protocol !== 'https:') throw new Error('Only http and https links work here.');
+  const { address } = await dns.lookup(u.hostname);
+  if (isPrivateAddress(address)) throw new Error('That address is not reachable from here.');
+  return u;
+}
+
+const pick = (html, patterns) => {
+  for (const re of patterns) {
+    const m = re.exec(html);
+    if (m && m[1]) return m[1].trim();
+  }
+  return '';
+};
+const decodeEntities = (s) => String(s)
+  .replace(/&quot;/g, '"').replace(/&#0?39;/g, "'").replace(/&apos;/g, "'")
+  .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+  .replace(/&nbsp;/g, ' ');
+
+app.post('/api/unfurl', requireAuth, async (req, res) => {
+  let url;
+  try {
+    url = await assertPublicUrl(String((req.body && req.body.url) || '').trim());
+  } catch (err) {
+    return res.status(400).json({ error: 'bad_url', message: err.message });
+  }
+
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), UNFURL_TIMEOUT_MS);
+  try {
+    let current = url;
+    let response = null;
+    for (let hop = 0; hop <= UNFURL_MAX_REDIRECTS; hop++) {
+      response = await fetch(current.href, {
+        redirect: 'manual',
+        signal: ctl.signal,
+        headers: {
+          // Plenty of shops serve a stub to unknown agents; a normal browser
+          // string gets the real markup with the tags we are after.
+          'User-Agent': 'Mozilla/5.0 (compatible; LedgerVault/1.0; +goal-preview)',
+          Accept: 'text/html,application/xhtml+xml',
+        },
+      });
+      if (![301, 302, 303, 307, 308].includes(response.status)) break;
+      const loc = response.headers.get('location');
+      if (!loc) break;
+      // Re-check every hop: a public URL is free to redirect somewhere private.
+      current = await assertPublicUrl(new URL(loc, current).href);
+      if (hop === UNFURL_MAX_REDIRECTS) return res.status(400).json({ error: 'too_many_redirects', message: 'That link redirects too many times.' });
+    }
+
+    if (!response.ok) return res.status(400).json({ error: 'fetch_failed', message: `The page returned ${response.status}.` });
+    const type = response.headers.get('content-type') || '';
+    if (!/text\/html|application\/xhtml/i.test(type)) {
+      return res.status(400).json({ error: 'not_html', message: 'That link is not a web page.' });
+    }
+
+    // Read a capped amount: enough for <head>, not enough to be a problem.
+    const reader = response.body.getReader();
+    const chunks = [];
+    let size = 0;
+    while (size < UNFURL_MAX_BYTES) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.length;
+      chunks.push(value);
+    }
+    try { await reader.cancel(); } catch (e) { /* already closed */ }
+    const html = Buffer.concat(chunks).toString('utf8');
+
+    const meta = (prop) => [
+      new RegExp(`<meta[^>]+(?:property|name)=["']${prop}["'][^>]+content=["']([^"']+)["']`, 'i'),
+      new RegExp(`<meta[^>]+content=["']([^"']+)["'][^>]+(?:property|name)=["']${prop}["']`, 'i'),
+    ];
+
+    const title = decodeEntities(pick(html, [
+      ...meta('og:title'), ...meta('twitter:title'), /<title[^>]*>([^<]+)<\/title>/i,
+    ])).slice(0, 80);
+
+    let image = pick(html, [...meta('og:image:secure_url'), ...meta('og:image'), ...meta('twitter:image')]);
+    if (image) { try { image = new URL(decodeEntities(image), current).href; } catch (e) { image = ''; } }
+
+    const priceRaw = pick(html, [
+      ...meta('product:price:amount'), ...meta('og:price:amount'),
+      /itemprop=["']price["'][^>]*content=["']([\d.,]+)["']/i,
+      /"price"\s*:\s*"?([\d.,]+)"?/i,
+    ]);
+    const price = priceRaw ? Number(String(priceRaw).replace(/[^0-9.]/g, '')) : null;
+
+    res.json({
+      title,
+      image,
+      price: Number.isFinite(price) && price > 0 ? price : null,
+      site: current.hostname.replace(/^www\./, ''),
+      url: current.href,
+    });
+  } catch (err) {
+    const aborted = err.name === 'AbortError';
+    res.status(400).json({
+      error: aborted ? 'timeout' : 'unfurl_failed',
+      message: aborted ? 'That page took too long to answer.' : 'Could not read that page.',
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+});
+
+
 // Return the signed-in user's transactions, newest first.
 app.get('/api/transactions', requireAuth, (req, res) => {
   const tx = Object.values(getTransactions()).filter((t) => t.userId === req.userId);

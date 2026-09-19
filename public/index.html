@@ -327,6 +327,7 @@ async function loadAccounts() {
           <div class="acct-name">${esc(it.institution_name)}</div>
           <div class="acct-sub small">${it.connected_at ? `Connected ${fmtConnDate(it.connected_at)}` : ''}${historyNote(it)}</div>
         </div>
+        <button class="btn ghost sm" data-act="relink" data-item="${esc(it.item_id)}" data-label="${esc(it.institution_name)}" title="Link this bank again to widen its history">Reconnect</button>
         <button class="btn ghost sm" data-act="disconnect" data-item="${esc(it.item_id)}" data-label="${esc(it.institution_name)}">Disconnect</button>
       </div>
       ${rows ? `<div class="conn-accounts">${rows}</div>` : ''}
@@ -383,6 +384,8 @@ This revokes each connection at Plaid and removes their accounts and transaction
 });
 
 $('#accountsWrap').addEventListener('click', async (e) => {
+  const re = e.target.closest('[data-act="relink"]');
+  if (re) { re.disabled = true; try { await relinkBank(re.dataset.item, re.dataset.label); } finally { re.disabled = false; } return; }
   const btn = e.target.closest('[data-act="disconnect"]');
   if (!btn) return;
   const { item, label } = btn.dataset;
@@ -449,6 +452,51 @@ function historyDaysWanted() {
     return Math.max(1, Math.ceil((now - jan1) / 86400000));
   }
   return Number(v) || 730;
+}
+
+// Opens Plaid Link and returns the new item_id, or null if the person backed
+// out. Used by both connecting a new bank and reconnecting an existing one.
+async function openLink(days) {
+  const { link_token } = await api('/api/create_link_token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ days }),
+  });
+  return new Promise((resolve, reject) => {
+    const handler = Plaid.create({
+      token: link_token,
+      onSuccess: async (public_token, metadata) => {
+        try {
+          setStatus('Linking account…');
+          const out = await api('/api/exchange_public_token', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ public_token, institution_name: metadata?.institution?.name, days }),
+          });
+          resolve(out && out.item_id);
+        } catch (e) { reject(e); }
+      },
+      onExit: (err) => { if (err) console.error(err); resolve(null); },
+    });
+    handler.open();
+  });
+}
+
+// Plaid fixes the history window when an Item is created and update mode
+// cannot raise it, so widening history means a genuinely new Item. The new one
+// is linked first and the old removed only once it succeeds — backing out
+// halfway should leave the bank connected, not gone.
+async function relinkBank(itemId, label) {
+  const days = historyDaysWanted();
+  setStatus(`Reconnecting ${label}…`);
+  const newId = await openLink(days);
+  if (!newId) { setStatus(''); return; }
+  if (newId !== itemId) {
+    try { await api(`/api/items/${encodeURIComponent(itemId)}`, { method: 'DELETE' }); }
+    catch (e) { console.error('old item cleanup', e); }
+  }
+  setStatus(`${label} reconnected with more history.`);
+  await refreshAll();
 }
 
 $('#connectBtn').addEventListener('click', async () => {
