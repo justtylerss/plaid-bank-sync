@@ -1262,7 +1262,7 @@ function lastTxLike(desc) {
   return best;
 }
 
-/* ---------- Prop firms ---------- */
+/* ---------- Prop Firms ---------- */
 function propFirmStats(year) {
   const tradingIds = new Set(S.businesses.filter((b) => b.kind === 'trading').map((b) => b.id));
   const firms = new Map();
@@ -1325,6 +1325,25 @@ const PROP_FIRM_PATTERNS = [
   ['Phidias Propfirm', ['phidias']],
   ['Savius', ['savius']],
   ['Trade The Pool', ['trade the pool', 'tradethepool']],
+  ['FundingTicks', ['fundingticks', 'funding ticks']],
+  ['The Futures Desk', ['the futures desk', 'futuresdesk']],
+  ['Funding Pips', ['funding pips', 'fundingpips']],
+  ['Blue Guardian', ['blue guardian', 'blueguardian']],
+  ['Maven Trading', ['maven trading', 'maventrading']],
+  ['Hola Prime', ['hola prime', 'holaprime']],
+  ['Seacrest Funded', ['seacrest funded', 'seacrestfunded']],
+  ['ThinkCapital', ['thinkcapital', 'think capital']],
+  ['Breakout Prop', ['breakout prop', 'breakoutprop']],
+  ['AquaFunded', ['aquafunded', 'aqua funded']],
+  ['Quant Tekel', ['quant tekel', 'quanttekel']],
+  ['Audacity Capital', ['audacity capital', 'audacitycapital']],
+  ['Finotive Funding', ['finotive']],
+  ['Lark Funding', ['lark funding', 'larkfunding']],
+  ['Smart Prop Trader', ['smart prop trader', 'smartproptrader']],
+  ['Ment Funding', ['ment funding', 'mentfunding']],
+  ['Traddoo', ['traddoo']],
+  ['Crypto Fund Trader', ['crypto fund trader', 'cryptofundtrader']],
+  ['Day Traders Inc', ['daytraders.com', 'day traders inc']],
 ];
 const squash = (s) => norm(s).replace(/[^a-z0-9]/g, '');
 function detectPropFirmName(desc) {
@@ -1352,7 +1371,7 @@ function propFirmBizFor(desc, type) {
   return { b: tradingBiz.id, c: bc ? bc.id : '', pct: 100, firm, receipt: false, rnote: '' };
 }
 
-/* ---------- Needs review ----------
+/* ---------- Needs Review ----------
    Bank-synced transactions land straight in the books now, which is faster but
    means nothing stops to ask when the data is thin. These are the cases where
    a row is in your books but its meaning is genuinely unclear, so totals and
@@ -1379,9 +1398,9 @@ function needsReview() {
       add(t, 'Business expense with no write-off category', 'Pick how your CPA should group it.');
       continue;
     }
-    // Trading business rows with no firm are missing from Prop firms.
+    // Trading business rows with no firm are missing from Prop Firms.
     if (t.biz && !t.biz.firm && (S.businesses.find((b) => b.id === t.biz.b) || {}).kind === 'trading') {
-      add(t, 'Trading business, but no firm named', 'Name the firm so it counts in Prop firms.');
+      add(t, 'Trading business, but no firm named', 'Name the firm so it counts in Prop Firms.');
       continue;
     }
     if (t.type === 'transfer') continue;
@@ -1412,11 +1431,11 @@ function needsReviewHTML(cls) {
   const more = items.length > shown.length
     ? `<p class="muted small" style="margin-top:10px">${items.length - shown.length} more not shown.</p>`
     : '';
-  return UI.card('Needs review', `<p class="text-2" style="margin-bottom:10px">In your books already, but ambiguous enough that totals built on them could be off. Click one to sort it out.</p><div class="list">${rows}</div>${more}`,
+  return UI.card('Needs Review', `<p class="text-2" style="margin-bottom:10px">In your books already, but ambiguous enough that totals built on them could be off. Click one to sort it out.</p><div class="list">${rows}</div>${more}`,
     { sub: `${items.length} to check`, cls: cls || 's12' });
 }
 
-/* ---------- What the Prop firms section is missing ----------
+/* ---------- What the Prop Firms section is missing ----------
    Only transactions carrying a trading business *and* a firm name are counted
    by propFirmStats, so anything that arrived before auto-detection existed,
    anything Plaid filed as a transfer, and anything whose description didn't
@@ -1481,6 +1500,55 @@ function propFirmCandidates() {
     if (t.type === 'income' && COMPANY_NAME.test(t.desc)) { out.push({ t, why: 'money in from a company' }); }
   }
   return out;
+}
+
+/* ---------- Re-scan ----------
+   Detection improves over time — new firms get added, patterns get fixed —
+   but transactions are categorised once, when they arrive. Without this,
+   every improvement only helps transactions you have not imported yet, and
+   the only way to benefit was to wipe everything and re-import.
+
+   This fills gaps only. A row that already carries a firm, a category or a
+   business keeps what it has: the person may well have set it deliberately,
+   and quietly overwriting that would be worse than missing a match. Every
+   change is snapshotted so the whole pass can be undone in one go. */
+function rescanTransactions() {
+  const snaps = [];
+  const counts = { firms: 0, cats: 0, rules: 0 };
+
+  for (const t of S.transactions) {
+    const before = { id: t.id, cat: t.cat, biz: t.biz ? JSON.parse(JSON.stringify(t.biz)) : null, type: t.type };
+    let touched = false;
+
+    // Transfers are left alone: the row keeps no direction, so whether a
+    // prop firm transfer was a payout or a fee is unknowable here. The
+    // review panel asks instead of guessing.
+    if (t.type !== 'transfer') {
+      if (!t.biz || !t.biz.firm) {
+        const pf = propFirmBizFor(t.desc, t.type);
+        if (pf && !t.biz) { t.biz = pf; counts.firms++; touched = true; }
+      }
+      if (!t.cat || !catOf(t.cat)) {
+        const rule = matchRule(t.desc);
+        const rc = rule && catOf(rule.cat);
+        if (rc && rc.kind === t.type) { t.cat = rule.cat; counts.rules++; touched = true; }
+      }
+      if ((!t.cat || !catOf(t.cat)) && t.biz && t.biz.firm) {
+        const wantName = t.type === 'income' ? 'Trading payouts' : 'Prop firm';
+        const c = byName(catsOfKind(t.type), wantName);
+        if (c) { t.cat = c.id; counts.cats++; touched = true; }
+      }
+    }
+    if (touched) snaps.push(before);
+  }
+  return { snaps, counts };
+}
+function undoRescan(snaps) {
+  for (const s of snaps) {
+    const t = byId(S.transactions, s.id);
+    if (!t) continue;
+    t.cat = s.cat; t.biz = s.biz; t.type = s.type;
+  }
 }
 
 function propFirmReviewHTML() {
@@ -1796,10 +1864,10 @@ const ui = {
 const TAB_ID = uid();
 
 const NAV = [
-  ['Overview', [['dashboard', 'Dashboard', 'dashboard'], ['import', 'Import & inbox', 'inbox']]],
-  ['Money', [['transactions', 'Transactions', 'list'], ['budgets', 'Budgets', 'pie'], ['recurring', 'Bills & subs', 'repeat'], ['cards', 'Cards & accounts', 'card']]],
-  ['Business', [['business', 'Write-offs & taxes', 'briefcase'], ['propfirms', 'Prop firms', 'trophy'], ['mileage', 'Mileage log', 'car']]],
-  ['Wealth', [['investments', 'Investments', 'trend'], ['networth', 'Net worth', 'landmark'], ['goals', 'Goals', 'target']]],
+  ['Overview', [['dashboard', 'Dashboard', 'dashboard'], ['import', 'Import & Inbox', 'inbox']]],
+  ['Money', [['transactions', 'Transactions', 'list'], ['budgets', 'Budgets', 'pie'], ['recurring', 'Bills & Subs', 'repeat'], ['cards', 'Cards & Accounts', 'card']]],
+  ['Business', [['business', 'Write-offs & Taxes', 'briefcase'], ['propfirms', 'Prop Firms', 'trophy'], ['mileage', 'Mileage Log', 'car']]],
+  ['Wealth', [['investments', 'Investments', 'trend'], ['networth', 'Net Worth', 'landmark'], ['goals', 'Goals', 'target']]],
 ];
 
 /* ---------- Components ---------- */
@@ -1860,7 +1928,7 @@ function sidebarHTML() {
     <div class="side-foot">
       <nav class="nav">
         <a href="/">${icon('landmark')}<span>Bank Sync</span></a>
-        <a href="#/settings" class="${ui.view === 'settings' ? 'active' : ''}">${icon('sliders')}<span>Settings & privacy</span></a>
+        <a href="#/settings" class="${ui.view === 'settings' ? 'active' : ''}">${icon('sliders')}<span>Settings & Privacy</span></a>
       </nav>
       <div class="save-status" id="save-status"><span class="led"></span><span class="t">Synced · private to you</span></div>
       <div class="side-actions">
@@ -2174,7 +2242,7 @@ function txModal(tx = null, preset = {}, opts = {}) {
       ${UI.field('Description', `<input class="input" name="desc" list="dl-desc" maxlength="120" value="${esc(t.desc)}" placeholder="e.g. TradingView, H-E-B, Topstep eval">`, { cls: 'full' })}
       <datalist id="dl-desc">${descs.map((d) => `<option value="${esc(d)}">`).join('')}</datalist>
       <div class="field" data-f-cat><span class="label">Category</span><select class="select" name="cat" aria-label="Category">${UI.options(catsOfKind(t.type === 'transfer' ? 'expense' : t.type), t.cat, { empty: 'Choose category' })}</select></div>
-      ${UI.field('Paid with', `<select class="select" name="pm">${pmOptions(t.pm)}</select>`, { hint: S.paymentMethods.length ? '' : 'Add cards under Cards & accounts to track which one you used.' })}
+      ${UI.field('Paid with', `<select class="select" name="pm">${pmOptions(t.pm)}</select>`, { hint: S.paymentMethods.length ? '' : 'Add cards under Cards & Accounts to track which one you used.' })}
       ${UI.field('Notes', `<input class="input" name="notes" maxlength="500" value="${esc(t.notes)}" placeholder="Optional">`)}
       ${UI.field('Tags', `<input class="input" name="tags" maxlength="120" value="${esc((t.tags || []).join(', '))}" placeholder="Optional, comma separated">`)}
     </div>
@@ -2389,7 +2457,7 @@ VIEWS.dashboard = {
     const snaps = S.snapshots.slice(-12);
     const prevSnap = S.snapshots.filter((s) => s.month < curMonth()).slice(-1)[0];
     const hero = S.accounts.length || S.holdings.length
-      ? `<section class="card feature s4"><div class="hero"><span class="hero-label">Net worth</span><span class="hero-value amt">${esc(money(nw.total, { whole: true }))}</span>${prevSnap ? UI.delta(nw.total, prevSnap.total, true, `since ${monthShort(prevSnap.month)}`) : ''}</div>
+      ? `<section class="card feature s4"><div class="hero"><span class="hero-label">Net Worth</span><span class="hero-value amt">${esc(money(nw.total, { whole: true }))}</span>${prevSnap ? UI.delta(nw.total, prevSnap.total, true, `since ${monthShort(prevSnap.month)}`) : ''}</div>
           <div style="margin-top:14px">${snaps.length >= 2 ? chartSlot((W, H) => sparkline(snaps.map((s) => s.total), 'var(--feature-ink)', W, H), 56) : ''}</div>
           <div class="hero-row"><div>Cash & assets<b class="amt">${esc(money(nw.assets, { whole: true }))}</b></div><div>Investments<b class="amt">${esc(money(nw.investments, { whole: true }))}</b></div><div>Debts<b class="amt">${esc(money(nw.liabilities, { whole: true }))}</b></div></div>${goalsMini()}</section>`
       : `<section class="card s4">${UI.empty('landmark', 'Track your net worth', 'Add bank balances, debts and investments to see the full picture.', '<button class="btn sm" data-act="go" data-view="networth">Add accounts</button>')}</section>`;
@@ -2612,10 +2680,10 @@ ACT['budget-suggest'] = async () => {
 };
 
 /* =========================================================
-   Bills & subscriptions (recurring)
+   Bills & Subscriptions (recurring)
    ========================================================= */
 VIEWS.recurring = {
-  title: 'Bills & subscriptions',
+  title: 'Bills & Subscriptions',
   render() {
     if (!S.recurring.length) return `<div class="card">${UI.empty('repeat', 'No bills or subscriptions yet', 'Add rent, TradingView, data fees, insurance premiums, paychecks… Post them in one click when they hit.', '<button class="btn primary sm" data-act="rec-detect">Find from connected banks</button> <button class="btn sm" data-act="rec-add">Add manually</button>')}</div>`;
     const items = S.recurring.slice().sort((a, b) => (a.active === false) - (b.active === false) || (a.next < b.next ? -1 : 1));
@@ -2816,7 +2884,7 @@ ACT['rec-skip'] = (el) => { const r = byId(S.recurring, el.dataset.id); if (r) c
 ACT['rec-del'] = async (el) => { const r = byId(S.recurring, el.dataset.id); if (!r) return; if (await confirmDialog({ title: `Delete ${r.name}?`, message: 'Past transactions stay. Only the schedule is removed.', confirmText: 'Delete' })) commit(() => { S.recurring = S.recurring.filter((x) => x.id !== r.id); }, 'Deleted'); };
 
 /* =========================================================
-   Cards & accounts
+   Cards & Accounts
    ========================================================= */
 const PM_TYPES = { credit: 'Credit', debit: 'Debit', bank: 'Bank / ACH', cash: 'Cash', wallet: 'Digital wallet', other: 'Other' };
 
@@ -2826,23 +2894,29 @@ const CHANGELOG = [
   {
     date: 'Sep 19, 2026',
     items: [
-      'Payment methods is now Cards & accounts, and the cards are grouped into Credit cards, Debit cards and Other accounts instead of one mixed grid.',
-      'A Payments due card lists your credit cards, soonest due first, with how many days away each is. Cards with no due day set say so and can be fixed from there. The figure beside each is what you spent on that card this month — statement balances aren’t tracked, so it doesn’t pretend to be the amount owed.',
+      'Re-scan, on Prop Firms and under Settings → Data, checks everything already in your books against the current prop firm list and your rules. Detection improves over time but transactions were only ever categorised on arrival, so improvements used to help new imports only. It fills gaps — anything you set yourself is kept — and the whole pass can be undone.',
+      'The prop firm list grew from 24 to 54, covering the futures firms that actually run evaluations. Re-scan applies them to purchases already in your books.',
+      'Due days are detected from when each card’s payments actually land, offered per card or all at once rather than filled in silently.',
+      'Interest and fees have their own card on Cards & Accounts, split apart and broken down per card.',
+      'Changing a category now offers to fix other transactions with the same description that are still categorised differently.',
+      'Sidebar and page titles are title case throughout, so Bills & Subs no longer sits next to Bank Sync in a different style.',
+      'Payment methods is now Cards & Accounts, and the cards are grouped into Credit cards, Debit cards and Other accounts instead of one mixed grid.',
+      'A Payments Due card lists your credit cards, soonest due first, with how many days away each is. Cards with no due day set say so and can be fixed from there. The figure beside each is what you spent on that card this month — statement balances aren’t tracked, so it doesn’t pretend to be the amount owed.',
       'Payment due no longer appears on debit cards or other accounts, and the due-day field is only offered for credit cards.',
       'Receipt tracking removed throughout: the Receipt saved checkbox, receipt location, attach-photo control, No receipt badges, the missing-receipts filter and tax-checklist nag, and the Receipt columns in both CSV exports. Photographing a receipt still works as an import — Claude reads the amount, date and merchant off it — it just isn’t filed as documentation any more.',
       '“Always categorize this way” now fixes transactions already in your books, not just future ones, with an Undo. The prop firm box lists every known firm in its dropdown.',
-      'Firm names now match regardless of spacing. A statement reading "MyFunded Futures LLC" matched none of the spellings the app knew, which is why its payouts never reached the Prop firms totals — comparison now ignores spaces, punctuation and casing entirely.',
+      'Firm names now match regardless of spacing. A statement reading "MyFunded Futures LLC" matched none of the spellings the app knew, which is why its payouts never reached the Prop Firms totals — comparison now ignores spaces, punctuation and casing entirely.',
       'Money arriving from something calling itself a company (LLC, Inc, Capital, Holdings…) is listed under Possible prop firm activity for you to confirm. It is never counted automatically, since plenty of ordinary income comes from companies too.',
-      'Fixed prop firm payouts going missing. Banks report an incoming payout as a transfer, and transfers skipped firm detection entirely — so payouts never reached the Prop firms totals. A recognised firm name now overrides the transfer label. MyFundedFutures also matches more of the ways it appears on a statement.',
-      'Prop firms gained a review panel: any transaction matching a known firm but not counted in the totals is listed with a one-click fix, and transfers (where your bank kept no direction) ask whether they were a payout or a fee. It also shows how far back your transaction history actually goes, so a short Plaid window reads as a date rather than as missing purchases.',
-      'Needs review on the Dashboard collects transactions that are already in your books but ambiguous — no category, a business expense with no write-off category, a trading expense with no firm named, or a large amount left on a catch-all category. Click any of them to sort it out.',
+      'Fixed prop firm payouts going missing. Banks report an incoming payout as a transfer, and transfers skipped firm detection entirely — so payouts never reached the Prop Firms totals. A recognised firm name now overrides the transfer label. MyFundedFutures also matches more of the ways it appears on a statement.',
+      'Prop Firms gained a review panel: any transaction matching a known firm but not counted in the totals is listed with a one-click fix, and transfers (where your bank kept no direction) ask whether they were a payout or a fee. It also shows how far back your transaction history actually goes, so a short Plaid window reads as a date rather than as missing purchases.',
+      'Needs Review on the Dashboard collects transactions that are already in your books but ambiguous — no category, a business expense with no write-off category, a trading expense with no firm named, or a large amount left on a catch-all category. Click any of them to sort it out.',
       'Transactions can be sorted: newest, oldest, largest amount, smallest amount, or by description A–Z / Z–A. The choice sticks per device and survives clearing filters.',
-      'New Light blue theme — white cards on a soft blue ground — plus a proper theme picker under Settings & privacy. Follow system, Light, Light blue or Dark; the choice covers Bank Sync and the sign-in screen too, and is remembered per device.',
+      'New Light blue theme — white cards on a soft blue ground — plus a proper theme picker under Settings & Privacy. Follow system, Light, Light blue or Dark; the choice covers Bank Sync and the sign-in screen too, and is remembered per device.',
       'Bank Sync gained a Disconnect all button next to Accounts, for clearing every connected bank at once instead of one at a time. It asks twice, since reconnecting means going through Plaid Link again for each bank.',
-      'Bills & subs can now be built from your connected banks — "Find from connected banks" pulls Plaid’s detected recurring streams and fills in amount, frequency, next due date, category and card. Re-running refreshes the figures and keeps any categorisation you set yourself.',
+      'Bills & Subs can now be built from your connected banks — "Find from connected banks" pulls Plaid’s detected recurring streams and fills in amount, frequency, next due date, category and card. Re-running refreshes the figures and keeps any categorisation you set yourself.',
       'Bank Sync now asks how much history to pull when you connect (90 days up to 2 years, defaulting to the 2-year maximum). Plaid previously defaulted to 90 days, which is why older transactions were missing. The window is fixed when a bank is linked, so banks connected before this need disconnecting and reconnecting to get more.',
-      'Amounts no longer auto-blur after 10 minutes away by default. The setting is still there under Settings & privacy → Auto-hide amounts, and existing accounts keep whatever they already had.',
-      'Prop firms page split into Overview, Evaluations, and Payouts tabs, plus automatic detection of ~20 known prop firms so their fees and payouts are tagged to your trading business without a manual toggle.',
+      'Amounts no longer auto-blur after 10 minutes away by default. The setting is still there under Settings & Privacy → Auto-hide amounts, and existing accounts keep whatever they already had.',
+      'Prop Firms page split into Overview, Evaluations, and Payouts tabs, plus automatic detection of ~20 known prop firms so their fees and payouts are tagged to your trading business without a manual toggle.',
       '"Paid with" fills in automatically on bank-synced transactions — matched to an existing card by last 4 digits, or a new one added for you.',
       'Bank-synced transactions now go straight into your books instead of the review inbox; the Import button became Refresh, re-syncing with Plaid on click.',
       'Cash flow and Spending pace on the Dashboard gained longer timeframe options (3M/6M/1Y/2Y and Month/Quarter/Year).',
@@ -2923,7 +2997,7 @@ function nextDue(day) {
   return d;
 }
 VIEWS.cards = {
-  title: 'Cards & accounts', month: true,
+  title: 'Cards & Accounts', month: true,
   render() {
     if (!S.paymentMethods.length) return `<div class="card">${UI.empty('card', 'Track which card paid for what', 'Add cards and accounts by nickname and last 4 digits. Handy for rewards, disputes, and separating business from personal spending.', '<button class="btn primary sm" data-act="pm-add">Add a card or account</button>')}<p class="note" style="justify-content:center;padding-bottom:20px">${icon('shield')}Never enter full card numbers, CVV codes or PINs. Ledger Vault only accepts the last 4 digits.</p></div>`;
     const mk = ui.month, y = mk.slice(0, 4);
@@ -2996,7 +3070,7 @@ VIEWS.cards = {
     const dueFoot = anyDue
       ? 'Amount shown is what you spent on that card this month, not the statement balance.'
       : 'Amounts shown are this month&rsquo;s spending on each card, not statement balances.';
-    const dueCard = creditCards.length ? UI.card('Payments due',
+    const dueCard = creditCards.length ? UI.card('Payments Due',
       `<div class="list">${dues.map(dueRow).join('')}</div><p class="muted small" style="margin-top:10px">${dueFoot}</p>`,
       { cls: 's12', actions: guessable.length > 1 ? `<button class="btn sm" data-act="pm-usedue-all">Use all ${guessable.length} detected</button>` : '' }) : '';
 
@@ -3008,7 +3082,7 @@ VIEWS.cards = {
     const costRows = [...cost.byCard.entries()]
       .map(([id, v]) => ({ pm: pmOf(id), v }))
       .sort((a, b) => (b.v.interest + b.v.fees) - (a.v.interest + a.v.fees));
-    const costCard = cost.total ? UI.card('Interest & fees', `
+    const costCard = cost.total ? UI.card('Interest & Fees', `
       <div class="row wrap" style="gap:22px;margin-bottom:14px">
         <div><div class="muted small">Interest</div><div class="amt" style="font-size:20px;font-weight:650">${esc(money(cost.interest))}</div></div>
         <div><div class="muted small">Fees</div><div class="amt" style="font-size:20px;font-weight:650">${esc(money(cost.fees))}</div></div>
@@ -3541,7 +3615,7 @@ function inboxHTML() {
   </section>`;
 }
 VIEWS.import = {
-  title: 'Import & inbox',
+  title: 'Import & Inbox',
   render() {
     const ai = aiReady();
     const tiles = [
@@ -3932,9 +4006,9 @@ function moneyContext() {
     lines.push(`Business "${b.name}" ${y}: income ${Math.round(sum(tx.filter((t) => t.type === 'income'), (t) => t.amount) / 100)}, deductible ${Math.round(sum(tx, deductible) / 100)} (${[...bc].map(([k, v]) => `${k} ${Math.round(v / 100)}`).join('; ')})`);
   }
   const firms = propFirmStats('all');
-  if (firms.length) lines.push('Prop firms (all time, paid / payouts): ' + firms.map((f) => `${f.name} ${Math.round(f.spent / 100)} / ${Math.round(f.payouts / 100)} (${f.evals} evals)`).join('; '));
+  if (firms.length) lines.push('Prop Firms (all time, paid / payouts): ' + firms.map((f) => `${f.name} ${Math.round(f.spent / 100)} / ${Math.round(f.payouts / 100)} (${f.evals} evals)`).join('; '));
   const nw = netWorth();
-  lines.push(`Net worth ${Math.round(nw.total / 100)} (assets ${Math.round(nw.assets / 100)}, investments ${Math.round(nw.investments / 100)}, debts ${Math.round(nw.liabilities / 100)}).`);
+  lines.push(`Net Worth ${Math.round(nw.total / 100)} (assets ${Math.round(nw.assets / 100)}, investments ${Math.round(nw.investments / 100)}, debts ${Math.round(nw.liabilities / 100)}).`);
   lines.push('Budgets: ' + catsOfKind('expense').filter((c) => c.budget).map((c) => `${c.name} ${Math.round(c.budget / 100)}/mo (this month ${Math.round((spendByCat(curMonth()).get(c.id) || 0) / 100)})`).join('; '));
   lines.push('Recurring: ' + S.recurring.filter((r) => r.active !== false).map((r) => `${r.name} ${Math.round(r.amount / 100)} ${r.freq}`).join('; '));
   lines.push('Goals: ' + S.goals.map((g) => `${g.name} ${Math.round(g.saved / 100)} of ${Math.round(g.target / 100)}`).join('; '));
@@ -4005,7 +4079,7 @@ function bizYearData(y) {
 }
 
 VIEWS.business = {
-  title: 'Write-offs & taxes',
+  title: 'Write-offs & Taxes',
   render() {
     const y = ui.year;
     const d = bizYearData(y);
@@ -4095,7 +4169,7 @@ function mileageCSV(trips) {
   return toCSV(['Date', 'Business', 'From', 'To', 'Business purpose', 'Miles', 'Rate ($/mi)', 'Deduction'], rows, [5, 6, 7]);
 }
 
-/* ---------- Prop firms ---------- */
+/* ---------- Prop Firms ---------- */
 function propFirmEvalTxs(year) {
   const tradingIds = new Set(S.businesses.filter((b) => b.kind === 'trading').map((b) => b.id));
   return sortTx(S.transactions.filter((t) => t.type === 'expense' && t.biz && tradingIds.has(t.biz.b) && t.biz.firm && (year === 'all' || t.date.startsWith(year))));
@@ -4175,7 +4249,7 @@ function propFirmPayoutsHTML(firms, fy) {
   return `${stats}<div class="grid">${chart}${table}${recent}</div>`;
 }
 VIEWS.propfirms = {
-  title: 'Prop firms',
+  title: 'Prop Firms',
   render() {
     const years = yearsWithData();
     const fy = ui.firmYear;
@@ -4186,7 +4260,7 @@ VIEWS.propfirms = {
       <button class="${ui.firmTab === 'payouts' ? 'on' : ''}" data-act="firmtab" data-t="payouts">${icon('trend')}Payouts</button>
     </div>`;
     const yearTabs = `<div class="pill-tabs"><button class="${fy === 'all' ? 'on' : ''}" data-act="firmyear" data-y="all">All time</button>${years.map((y) => `<button class="${fy === y ? 'on' : ''}" data-act="firmyear" data-y="${y}">${y}</button>`).join('')}</div>`;
-    const toolbar = `${sectionTabs}<div class="toolbar">${yearTabs}<span class="spacer"></span><button class="btn sm" data-act="firm-log" data-kind="eval">${icon('plus')}Log evaluation</button><button class="btn sm primary" data-act="firm-log" data-kind="payout">${icon('plus')}Log payout</button></div>`;
+    const toolbar = `${sectionTabs}<div class="toolbar">${yearTabs}<span class="spacer"></span><button class="btn sm" data-act="rescan">${icon('refresh')}Re-scan</button><button class="btn sm" data-act="firm-log" data-kind="eval">${icon('plus')}Log evaluation</button><button class="btn sm primary" data-act="firm-log" data-kind="payout">${icon('plus')}Log payout</button></div>`;
     if (!firms.length) return `${toolbar}<div class="card">${UI.empty('trophy', 'Is prop trading paying off?', 'Log evaluation fees, resets, activation and data fees, plus payouts, with the firm name. You get ROI per firm, and every fee is already tagged as a write-off. Bank-synced transactions from known prop firms are tagged automatically.', '<button class="btn primary sm" data-act="firm-log" data-kind="eval">Log an evaluation</button><button class="btn sm" data-act="firm-log" data-kind="payout">Log a payout</button>')}</div>${propFirmReviewHTML()}`;
     const body = ui.firmTab === 'evals' ? propFirmEvalsHTML(firms, fy) : ui.firmTab === 'payouts' ? propFirmPayoutsHTML(firms, fy) : propFirmOverviewHTML(firms, fy);
     return `${toolbar}${body}${propFirmReviewHTML()}`;
@@ -4199,6 +4273,19 @@ ACT['firm-fix'] = (el) => {
   if (!t) return;
   const kind = el.dataset.kind || '';
   commit(() => { attributeToFirm(t, kind || null); }, `${t.desc} counted`);
+};
+ACT.rescan = () => {
+  const { snaps, counts } = rescanTransactions();
+  if (!snaps.length) { toast('Everything is already up to date with the latest detection'); return; }
+  commit(() => {}, '');
+  const bits = [];
+  if (counts.firms) bits.push(`${plural(counts.firms, 'prop firm match')}`);
+  if (counts.rules) bits.push(`${counts.rules} categorised by your rules`);
+  if (counts.cats) bits.push(`${counts.cats} categorised`);
+  toast(`${plural(snaps.length, 'transaction')} updated · ${bits.join(' · ')}`, '', {
+    label: 'Undo',
+    fn: () => commit(() => undoRescan(snaps), `${plural(snaps.length, 'transaction')} put back`),
+  });
 };
 ACT['firm-fix-all'] = () => {
   const { clear } = propFirmUnattributed();
@@ -4219,7 +4306,7 @@ ACT['firm-log'] = (el) => {
 
 /* ---------- Mileage ---------- */
 VIEWS.mileage = {
-  title: 'Mileage log',
+  title: 'Mileage Log',
   render() {
     const y = ui.year;
     const trips = S.trips.filter((t) => t.date.startsWith(y) && inBizTab(t.b)).sort((a, b) => (a.date < b.date ? 1 : -1));
@@ -4363,22 +4450,22 @@ ACT['price-update'] = () => {
   });
 };
 
-/* ---------- Net worth ---------- */
+/* ---------- Net Worth ---------- */
 const ACCT_TYPES = {
   asset: { checking: 'Checking', savings: 'Savings', cash: 'Cash', brokerage: 'Brokerage cash', retirement: 'Retirement (cash value)', property: 'Property', vehicle: 'Vehicle', other: 'Other asset' },
   liability: { credit: 'Credit card', student: 'Student loan', auto: 'Auto loan', mortgage: 'Mortgage', personal: 'Personal loan', other: 'Other debt' },
 };
 const ACCT_ICON = { checking: 'wallet', savings: 'target', cash: 'wallet', brokerage: 'trend', retirement: 'trend', property: 'landmark', vehicle: 'car', credit: 'card', student: 'file', auto: 'car', mortgage: 'landmark', personal: 'file', loan: 'file', other: 'wallet' };
 VIEWS.networth = {
-  title: 'Net worth',
+  title: 'Net Worth',
   render() {
     const nw = netWorth();
     const snaps = S.snapshots;
     const prev = snaps.filter((s) => s.month < curMonth()).slice(-1)[0];
     const hero = `<section class="card s12"><div class="grid" style="align-items:end">
-      <div class="s4"><div class="hero"><span class="hero-label">Net worth</span><span class="hero-value amt">${esc(money(nw.total, { whole: true }))}</span>${prev ? UI.delta(nw.total, prev.total, true, `since ${monthLabel(prev.month, 'short')}`) : '<span class="muted small">History builds automatically each month.</span>'}</div>
+      <div class="s4"><div class="hero"><span class="hero-label">Net Worth</span><span class="hero-value amt">${esc(money(nw.total, { whole: true }))}</span>${prev ? UI.delta(nw.total, prev.total, true, `since ${monthLabel(prev.month, 'short')}`) : '<span class="muted small">History builds automatically each month.</span>'}</div>
         <div class="hero-row"><div>Cash & assets<b class="amt">${esc(money(nw.assets, { whole: true }))}</b></div><div>Investments<b class="amt">${esc(money(nw.investments, { whole: true }))}</b></div><div>Debts<b class="amt">${esc(money(nw.liabilities, { whole: true }))}</b></div></div></div>
-      <div class="s8">${snaps.length >= 2 ? chartSlot(lineChart({ labels: snaps.map((s) => monthShort(s.month)), series: [{ name: 'Net worth', color: 'var(--c0)', values: snaps.map((s) => s.total), area: true }], zero: false, tipTitle: (i) => monthLabel(snaps[i].month) }), 200) : '<p class="muted small" style="padding:40px 0;text-align:center">Your net worth trend appears here after a second month of data.</p>'}</div>
+      <div class="s8">${snaps.length >= 2 ? chartSlot(lineChart({ labels: snaps.map((s) => monthShort(s.month)), series: [{ name: 'Net Worth', color: 'var(--c0)', values: snaps.map((s) => s.total), area: true }], zero: false, tipTitle: (i) => monthLabel(snaps[i].month) }), 200) : '<p class="muted small" style="padding:40px 0;text-align:center">Your net worth trend appears here after a second month of data.</p>'}</div>
     </div></section>`;
     const list = (kind) => {
       const accts = S.accounts.filter((a) => a.kind === kind).sort((a, b) => b.balance - a.balance);
@@ -4481,7 +4568,7 @@ ACT['goal-add'] = (el) => {
   const t = el.dataset.t;
   const y = Number(curMonth().slice(0, 4));
   if (t === 'emergency') { const avg = avgMonthlyExpense(3); goalModal(null, { name: 'Emergency fund', target: avg * 6, color: 2, hint: avg ? `Six months of your average spending (${money(avg)}/mo over the last 3 months).` : 'Aim for 3 to 6 months of expenses. Log a few months to get a personal number.' }); }
-  else if (t === 'tax') { const tab = ui.bizTab; ui.bizTab = 'all'; const est = bizYearData(String(y)).setAside; ui.bizTab = tab; goalModal(null, { name: `Tax set-aside ${y}`, target: est, deadline: `${y + 1}-04-15`, color: 3, hint: est ? `Pre-filled with ${S.settings.taxPct}% of your estimated ${y} business profit so far.` : 'Check Write-offs & taxes for an estimate based on your business profit.' }); }
+  else if (t === 'tax') { const tab = ui.bizTab; ui.bizTab = 'all'; const est = bizYearData(String(y)).setAside; ui.bizTab = tab; goalModal(null, { name: `Tax set-aside ${y}`, target: est, deadline: `${y + 1}-04-15`, color: 3, hint: est ? `Pre-filled with ${S.settings.taxPct}% of your estimated ${y} business profit so far.` : 'Check Write-offs & Taxes for an estimate based on your business profit.' }); }
   else goalModal();
 };
 ACT['goal-edit'] = (el) => { const g = byId(S.goals, el.dataset.id); if (g) goalModal(g); };
@@ -4504,7 +4591,7 @@ ACT['goal-add-money'] = (el) => {
    Settings, backups, import/export, category & rule management
    ========================================================= */
 VIEWS.settings = {
-  title: 'Settings & privacy',
+  title: 'Settings & Privacy',
   render() {
     const st = S.settings;
     const sel = (change, val, opts) => `<select class="select" data-change="${change}">${opts.map(([v, l]) => `<option value="${esc(v)}" ${String(val) === String(v) ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>`;
@@ -4517,6 +4604,7 @@ VIEWS.settings = {
       <div class="set-row"><div><div class="sr-t">Auto-hide amounts</div><div class="sr-d">Blur every number after you've been away.</div></div>${sel('set-idle', st.idleHideMin || 0, [[0, 'Off'], [2, 'After 2 min'], [5, 'After 5 min'], [10, 'After 10 min'], [30, 'After 30 min']])}</div>
       <div class="set-row"><div><div class="sr-t">Hide amounts now</div><div class="sr-d">For screen sharing. Shortcut: H</div></div><label class="switch"><input type="checkbox" id="set-privacy" data-change="set-privacy" ${ui.privacy ? 'checked' : ''} aria-label="Hide amounts"></label></div>`);
     const data = UI.card('Data', `
+      <div class="set-row"><div><div class="sr-t">Re-scan transactions</div><div class="sr-d">Check everything already in your books against the latest prop firm list and your rules. Fills gaps only — anything you set yourself is kept. Undoable.</div></div><button class="btn sm" data-act="rescan">${icon('refresh')}Re-scan</button></div>
       <div class="set-row"><div><div class="sr-t">Import statements, screenshots & files</div><div class="sr-d">PDF, images, CSV, OFX/QFX. Shortcut: I</div></div><button class="btn sm accent" data-act="go" data-view="import">${icon('upload')}Open import</button></div>
       <div class="set-row"><div><div class="sr-t">Backup file</div><div class="sr-d">Everything as one JSON file. ${st.lastBackupAt ? `Last: ${esc(fmtDate(st.lastBackupAt.slice(0, 10), { year: true }))}` : 'Never downloaded.'}</div></div><button class="btn sm" data-act="backup-download">${icon('download')}Download</button></div>
       <div class="set-row"><div><div class="sr-t">Restore, or move over from v1</div><div class="sr-d">A Cloud backup (.json) or a Ledger Vault v1 backup (.lvault, needs its password).</div></div><button class="btn sm" data-act="backup-restore">${icon('upload')}Restore</button></div>
