@@ -188,6 +188,46 @@ function publicUser(u) {
 // ---------------------------------------------------------------------------
 const app = express();
 app.set('trust proxy', 1); // so req.secure is correct behind Railway's proxy
+/* Security response headers.
+   Railway terminates TLS and redirects HTTP to HTTPS, but sends nothing that
+   tells the browser how to treat the page. These do.
+
+   The content policy is an allowlist of the four origins the app genuinely
+   uses — Plaid Link, Google Fonts, and itself. 'unsafe-inline' is present
+   because the pages are deliberately single-file with inline script and style;
+   it weakens the protection against injected inline code but still stops an
+   attacker loading script from anywhere else. img-src allows any https origin
+   because goal pictures are pasted from arbitrary product pages. */
+const CSP = [
+  "default-src 'self'",
+  "script-src 'self' 'unsafe-inline' https://cdn.plaid.com",
+  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+  "font-src 'self' https://fonts.gstatic.com",
+  "img-src 'self' data: blob: https:",
+  "connect-src 'self'",
+  "frame-src https://cdn.plaid.com",
+  // Nothing may frame this app. It shows balances and carries actions, so
+  // being framed is a clickjacking risk with no legitimate use.
+  "frame-ancestors 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+].join('; ');
+
+app.use((req, res, next) => {
+  // Tell browsers never to try this origin over plain HTTP again. Set only on
+  // HTTPS responses, so a local http://localhost session is unaffected.
+  if (req.secure || req.headers['x-forwarded-proto'] === 'https') {
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  }
+  res.setHeader('Content-Security-Policy', CSP);
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');           // for browsers predating frame-ancestors
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Permissions-Policy', 'geolocation=(), microphone=(), camera=(), payment=()');
+  next();
+});
+
+
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json());
 app.use(cookieParser());
