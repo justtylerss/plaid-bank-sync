@@ -1359,6 +1359,27 @@ function detectPropFirmName(desc) {
 // "reset" only when the description actually says so (bank descriptors
 // rarely spell that out), "eval" otherwise, since evaluation/challenge fees
 // are the large majority of prop-firm charges.
+// Anything from a recognised prop firm is business activity — an evaluation
+// fee is never a personal purchase. This is the single place that decides it,
+// so the import path and the re-scan cannot drift apart.
+//
+// What it will not do is overrule a choice already made: an existing write-off
+// category or business assignment is kept and only the missing pieces filled
+// in. Returns true when it changed something.
+function ensurePropFirmBiz(t) {
+  if (t.type !== 'income' && t.type !== 'expense') return false;
+  if (!detectPropFirmName(t.desc)) return false;
+  const pf = propFirmBizFor(t.desc, t.type);
+  if (!pf) return false;            // no trading business configured
+  if (!t.biz) { t.biz = pf; return true; }
+  let changed = false;
+  if (!t.biz.firm) { t.biz.firm = pf.firm; changed = true; }
+  if (!t.biz.b) { t.biz.b = pf.b; changed = true; }
+  if (t.type === 'expense' && !t.biz.c && pf.c) { t.biz.c = pf.c; changed = true; }
+  if (!(Number(t.biz.pct) > 0)) { t.biz.pct = 100; changed = true; }
+  return changed;
+}
+
 function propFirmBizFor(desc, type) {
   if (type !== 'income' && type !== 'expense') return null;
   const firm = detectPropFirmName(desc);
@@ -1524,10 +1545,7 @@ function rescanTransactions() {
     // prop firm transfer was a payout or a fee is unknowable here. The
     // review panel asks instead of guessing.
     if (t.type !== 'transfer') {
-      if (!t.biz || !t.biz.firm) {
-        const pf = propFirmBizFor(t.desc, t.type);
-        if (pf && !t.biz) { t.biz = pf; counts.firms++; touched = true; }
-      }
+      if (ensurePropFirmBiz(t)) { counts.firms++; touched = true; }
       if (!t.cat || !catOf(t.cat)) {
         const rule = matchRule(t.desc);
         const rc = rule && catOf(rule.cat);
@@ -2800,12 +2818,13 @@ function streamToRecurring(st) {
     if (rc && rc.kind === type) cat = rule.cat;
     if (rule.biz) biz = { ...rule.biz };
   }
-  if (!biz) {
-    const pf = propFirmBizFor(desc, type);
-    if (pf) {
-      biz = pf;
-      if (!cat) { const wantName = type === 'income' ? 'Trading payouts' : 'Prop firm'; const c = byName(catsOfKind(type), wantName); if (c) cat = c.id; }
-    }
+  // A rule can set a business without naming a firm. Attach the firm on
+  // top of it rather than treating the row as already handled — every
+  // prop firm charge is business activity.
+  const pfTmp = { type, desc, biz };
+  if (ensurePropFirmBiz(pfTmp)) {
+    biz = pfTmp.biz;
+    if (!cat) { const wantName = type === 'income' ? 'Trading payouts' : 'Prop firm'; const c = byName(catsOfKind(type), wantName); if (c) cat = c.id; }
   }
   if (!cat) {
     const mapped = categorizeFromPFC(st.personal_finance_category);
@@ -2894,6 +2913,7 @@ const CHANGELOG = [
   {
     date: 'Sep 19, 2026',
     items: [
+      'Every charge from a recognised prop firm is now treated as a business expense automatically — trading business, write-off category (evaluation or reset) and firm name filled in. One shared rule drives the bank-sync import, file imports and Re-scan, so they cannot drift. Anything you set yourself is kept.',
       'Re-scan, on Prop Firms and under Settings → Data, checks everything already in your books against the current prop firm list and your rules. Detection improves over time but transactions were only ever categorised on arrival, so improvements used to help new imports only. It fills gaps — anything you set yourself is kept — and the whole pass can be undone.',
       'The prop firm list grew from 24 to 54, covering the futures firms that actually run evaluations. Re-scan applies them to purchases already in your books.',
       'Due days are detected from when each card’s payments actually land, offered per card or all at once rather than filled in silently.',
@@ -3842,12 +3862,13 @@ function addBankTransactionsDirect(rows, accounts) {
         if (rc && rc.kind === type) cat = rule.cat;
         if (rule.biz) biz = { ...rule.biz };
       }
-      if (!biz) {
-        const pf = propFirmBizFor(desc, type);
-        if (pf) {
-          biz = pf;
-          if (!cat) { const wantName = type === 'income' ? 'Trading payouts' : 'Prop firm'; const c = byName(catsOfKind(type), wantName); if (c) cat = c.id; }
-        }
+      // A rule can set a business without naming a firm. Attach the firm on
+      // top of it rather than treating the row as already handled — every
+      // prop firm charge is business activity.
+      const pfTmp = { type, desc, biz };
+      if (ensurePropFirmBiz(pfTmp)) {
+        biz = pfTmp.biz;
+        if (!cat) { const wantName = type === 'income' ? 'Trading payouts' : 'Prop firm'; const c = byName(catsOfKind(type), wantName); if (c) cat = c.id; }
       }
       if (!cat && r.category) { const c = byName(catsOfKind(type), r.category); if (c) cat = c.id; }
       if (!cat) cat = fallbackCat(type);
