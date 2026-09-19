@@ -1254,14 +1254,14 @@ function propFirmStats(year) {
 // tagged manually (which teaches a rule for next time, same as everywhere
 // else in the app).
 const PROP_FIRM_PATTERNS = [
-  ['Apex Trader Funding', ['apex trader funding', 'apex trader', 'apextraderfunding']],
-  ['Topstep', ['topstep']],
+  ['Apex Trader Funding', ['apex trader funding', 'apex trader', 'apextraderfunding', 'apextrader', 'apex funding']],
+  ['Topstep', ['topstep', 'topsteptrader', 'top step trader']],
   ['FTMO', ['ftmo']],
   ['MyFundedFutures', ['myfundedfutures', 'my funded futures', 'my funded future', 'myfundedfuture', 'mff payout', 'mff eval']],
   ['My Funded FX', ['my funded fx', 'myfundedfx']],
   ['Leeloo Trading', ['leeloo']],
   ['Take Profit Trader', ['take profit trader', 'takeprofittrader']],
-  ['Bulenox', ['bulenox']],
+  ['Bulenox', ['bulenox', 'bulenox llc', 'bulenoxllc']],
   ['Elite Trader Funding', ['elite trader funding']],
   ['The Trading Pit', ['the trading pit', 'tradingpit']],
   ['Earn2Trade', ['earn2trade', 'earn 2 trade']],
@@ -1278,6 +1278,17 @@ const PROP_FIRM_PATTERNS = [
   ['FXIFY', ['fxify']],
   ['Goat Funded Trader', ['goat funded']],
   ['Instant Funding', ['instant funding']],
+  ['Tradeify', ['tradeify']],
+  ['Alpha Futures', ['alpha futures', 'alphafutures']],
+  ['BluSky Trading', ['blusky', 'blu sky trading']],
+  ['Legends Trading', ['legends trading', 'legendstrading']],
+  ['Tick Tick Trader', ['tick tick trader', 'ticktricktrader', 'tickticktrader']],
+  ['Aqua Futures', ['aqua futures', 'aquafutures']],
+  ['Nexgen Futures', ['nexgen futures', 'nexgenfutures']],
+  ['Purdia Capital', ['purdia']],
+  ['Phidias Propfirm', ['phidias']],
+  ['Savius', ['savius']],
+  ['Trade The Pool', ['trade the pool', 'tradethepool']],
 ];
 const squash = (s) => norm(s).replace(/[^a-z0-9]/g, '');
 function detectPropFirmName(desc) {
@@ -1421,6 +1432,7 @@ function attributeToFirm(t, forceType) {
 const PROP_FIRM_HINTS = [
   'trader', 'trading', 'funded', 'funding', 'futures', 'prop firm', 'propfirm',
   'evaluation', 'challenge', 'payout', 'tradovate', 'rithmic', 'ninjatrader',
+  'paddle', 'fastspring', 'merchant of record', 'prop',
 ];
 const COMPANY_NAME = /\b(llc|l\.l\.c|inc|incorporated|ltd|limited|llp|lp|capital|holdings|partners|group)\b/i;
 function propFirmCandidates() {
