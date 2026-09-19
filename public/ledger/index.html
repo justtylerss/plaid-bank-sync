@@ -343,6 +343,10 @@ tr:hover .row-actions, .row-actions:focus-within { opacity: 1; }
 .budget-meta { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); margin-top: 5px; }
 
 /* ============ Payment cards ============ */
+.pm-group { display: flex; align-items: baseline; gap: 10px; font-size: 13px; font-weight: 650; color: var(--muted);
+  text-transform: uppercase; letter-spacing: .06em; margin: 22px 0 10px; }
+.pm-group:first-child { margin-top: 0; }
+.pm-group span { font-weight: 500; letter-spacing: 0; text-transform: none; color: var(--muted); opacity: .8; }
 .pm-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; }
 .pm-item { display: grid; gap: 12px; }
 .pm-card {
@@ -1792,7 +1796,7 @@ const TAB_ID = uid();
 
 const NAV = [
   ['Overview', [['dashboard', 'Dashboard', 'dashboard'], ['import', 'Import & inbox', 'inbox']]],
-  ['Money', [['transactions', 'Transactions', 'list'], ['budgets', 'Budgets', 'pie'], ['recurring', 'Bills & subs', 'repeat'], ['cards', 'Payment methods', 'card']]],
+  ['Money', [['transactions', 'Transactions', 'list'], ['budgets', 'Budgets', 'pie'], ['recurring', 'Bills & subs', 'repeat'], ['cards', 'Cards & accounts', 'card']]],
   ['Business', [['business', 'Write-offs & taxes', 'briefcase'], ['propfirms', 'Prop firms', 'trophy'], ['mileage', 'Mileage log', 'car']]],
   ['Wealth', [['investments', 'Investments', 'trend'], ['networth', 'Net worth', 'landmark'], ['goals', 'Goals', 'target']]],
 ];
@@ -2169,7 +2173,7 @@ function txModal(tx = null, preset = {}, opts = {}) {
       ${UI.field('Description', `<input class="input" name="desc" list="dl-desc" maxlength="120" value="${esc(t.desc)}" placeholder="e.g. TradingView, H-E-B, Topstep eval">`, { cls: 'full' })}
       <datalist id="dl-desc">${descs.map((d) => `<option value="${esc(d)}">`).join('')}</datalist>
       <div class="field" data-f-cat><span class="label">Category</span><select class="select" name="cat" aria-label="Category">${UI.options(catsOfKind(t.type === 'transfer' ? 'expense' : t.type), t.cat, { empty: 'Choose category' })}</select></div>
-      ${UI.field('Paid with', `<select class="select" name="pm">${pmOptions(t.pm)}</select>`, { hint: S.paymentMethods.length ? '' : 'Add cards under Payment methods to track which one you used.' })}
+      ${UI.field('Paid with', `<select class="select" name="pm">${pmOptions(t.pm)}</select>`, { hint: S.paymentMethods.length ? '' : 'Add cards under Cards & accounts to track which one you used.' })}
       ${UI.field('Notes', `<input class="input" name="notes" maxlength="500" value="${esc(t.notes)}" placeholder="Optional">`)}
       ${UI.field('Tags', `<input class="input" name="tags" maxlength="120" value="${esc((t.tags || []).join(', '))}" placeholder="Optional, comma separated">`)}
     </div>
@@ -2490,7 +2494,7 @@ VIEWS.transactions = {
       ${sel('scope', [['month', 'This month'], ['year', 'This year'], ['all', 'All time']])}
       ${sel('type', [['', 'All types'], ['expense', 'Expenses'], ['income', 'Income'], ['transfer', 'Transfers']])}
       ${sel('cat', [['', 'All categories'], ...S.categories.map((c) => [c.id, c.name])])}
-      ${sel('pm', [['', 'All payment methods'], ['_none', 'Not specified'], ...S.paymentMethods.map((p) => [p.id, p.name + (p.last4 ? ' ··' + p.last4 : '')])])}
+      ${sel('pm', [['', 'All cards & accounts'], ['_none', 'Not specified'], ...S.paymentMethods.map((p) => [p.id, p.name + (p.last4 ? ' ··' + p.last4 : '')])])}
       ${sel('biz', [['', 'Business + personal'], ['business', 'Business only'], ['personal', 'Personal only'], ...S.businesses.map((b) => [b.id, b.name])])}
       <select class="select" data-change="txsort" aria-label="Sort transactions">${TX_SORTS.map(([v, label]) => `<option value="${v}" ${ui.txSort === v ? 'selected' : ''}>${esc(label)}</option>`).join('')}</select>
     </div><div id="tx-results">${txResultsHTML()}</div>`;
@@ -2787,7 +2791,7 @@ ACT['rec-skip'] = (el) => { const r = byId(S.recurring, el.dataset.id); if (r) c
 ACT['rec-del'] = async (el) => { const r = byId(S.recurring, el.dataset.id); if (!r) return; if (await confirmDialog({ title: `Delete ${r.name}?`, message: 'Past transactions stay. Only the schedule is removed.', confirmText: 'Delete' })) commit(() => { S.recurring = S.recurring.filter((x) => x.id !== r.id); }, 'Deleted'); };
 
 /* =========================================================
-   Payment methods
+   Cards & accounts
    ========================================================= */
 const PM_TYPES = { credit: 'Credit', debit: 'Debit', bank: 'Bank / ACH', cash: 'Cash', wallet: 'Digital wallet', other: 'Other' };
 
@@ -2797,6 +2801,11 @@ const CHANGELOG = [
   {
     date: 'Sep 19, 2026',
     items: [
+      'Payment methods is now Cards & accounts, and the cards are grouped into Credit cards, Debit cards and Other accounts instead of one mixed grid.',
+      'A Payments due card lists every credit card with a due day, soonest first, with how many days away it is. The figure beside each is what you spent on that card this month — statement balances aren’t tracked, so it doesn’t pretend to be the amount owed.',
+      'Payment due no longer appears on debit cards or other accounts, and the due-day field is only offered for credit cards.',
+      'Receipt tracking removed throughout: the Receipt saved checkbox, receipt location, attach-photo control, No receipt badges, the missing-receipts filter and tax-checklist nag, and the Receipt columns in both CSV exports. Photographing a receipt still works as an import — Claude reads the amount, date and merchant off it — it just isn’t filed as documentation any more.',
+      '“Always categorize this way” now fixes transactions already in your books, not just future ones, with an Undo. The prop firm box lists every known firm in its dropdown.',
       'Firm names now match regardless of spacing. A statement reading "MyFunded Futures LLC" matched none of the spellings the app knew, which is why its payouts never reached the Prop firms totals — comparison now ignores spaces, punctuation and casing entirely.',
       'Money arriving from something calling itself a company (LLC, Inc, Capital, Holdings…) is listed under Possible prop firm activity for you to confirm. It is never counted automatically, since plenty of ordinary income comes from companies too.',
       'Fixed prop firm payouts going missing. Banks report an incoming payout as a transfer, and transfers skipped firm detection entirely — so payouts never reached the Prop firms totals. A recognised firm name now overrides the transfer label. MyFundedFutures also matches more of the ways it appears on a statement.',
@@ -2835,9 +2844,9 @@ function nextDue(day) {
   return d;
 }
 VIEWS.cards = {
-  title: 'Payment methods', month: true,
+  title: 'Cards & accounts', month: true,
   render() {
-    if (!S.paymentMethods.length) return `<div class="card">${UI.empty('card', 'Track which card paid for what', 'Add cards and accounts by nickname and last 4 digits. Handy for rewards, disputes, and separating business from personal spending.', '<button class="btn primary sm" data-act="pm-add">Add payment method</button>')}<p class="note" style="justify-content:center;padding-bottom:20px">${icon('shield')}Never enter full card numbers, CVV codes or PINs. Ledger Vault only accepts the last 4 digits.</p></div>`;
+    if (!S.paymentMethods.length) return `<div class="card">${UI.empty('card', 'Track which card paid for what', 'Add cards and accounts by nickname and last 4 digits. Handy for rewards, disputes, and separating business from personal spending.', '<button class="btn primary sm" data-act="pm-add">Add a card or account</button>')}<p class="note" style="justify-content:center;padding-bottom:20px">${icon('shield')}Never enter full card numbers, CVV codes or PINs. Ledger Vault only accepts the last 4 digits.</p></div>`;
     const mk = ui.month, y = mk.slice(0, 4);
     const stat = (id) => {
       let m = 0, yr = 0, n = 0, biz = 0;
@@ -2849,7 +2858,7 @@ VIEWS.cards = {
       return { m, yr, n, biz };
     };
     const list = S.paymentMethods.slice().sort((a, b) => (a.archived ? 1 : 0) - (b.archived ? 1 : 0));
-    const cards = list.map((p) => {
+    const cardHTML = (p) => {
       const s = stat(p.id);
       const due = p.type === 'credit' && p.dueDay ? nextDue(p.dueDay) : null;
       return `<div class="pm-item"><button class="pm-card ${p.archived ? 'archived' : ''}" style="--pmc:${colorVar(p.color)}" data-act="pm-edit" data-id="${p.id}" aria-label="Edit ${esc(p.name)}">
@@ -2857,11 +2866,45 @@ VIEWS.cards = {
           ${['credit', 'debit'].includes(p.type) ? '<div class="pm-chip"></div>' : '<div></div>'}
           <div class="pm-bottom"><span class="pm-num">${p.last4 ? '•••• ' + esc(p.last4) : '&nbsp;'}</span><span class="pm-spend">${esc(monthShort(mk))} spend<b class="amt">${esc(money(s.m, { whole: s.m >= 100000 }))}</b></span></div>
         </button>
-        <div class="pm-stats"><div>Transactions<b>${s.n}</b></div><div>${esc(y)}<b class="amt">${esc(money(s.yr, { whole: true }))}</b></div><div>Business<b class="amt">${esc(money(s.biz, { whole: true }))}</b></div><div>Payment due<b>${due ? esc(fmtDate(due)) : '—'}</b></div></div></div>`;
-    }).join('');
+        <div class="pm-stats"><div>Transactions<b>${s.n}</b></div><div>${esc(y)}<b class="amt">${esc(money(s.yr, { whole: true }))}</b></div><div>Business<b class="amt">${esc(money(s.biz, { whole: true }))}</b></div>${due ? `<div>Payment due<b>${esc(fmtDate(due))}</b></div>` : ''}</div></div>`;
+    };
+
+    // Grouped by what the thing actually is. A credit card and a checking
+    // account behave differently — one has a statement to pay, the other
+    // does not — so they are no longer mixed into one undifferentiated grid.
+    const GROUPS = [['credit', 'Credit cards'], ['debit', 'Debit cards']];
+    const grouped = new Set();
+    let sections = '';
+    for (const [type, label] of GROUPS) {
+      const inGroup = list.filter((p) => p.type === type);
+      inGroup.forEach((p) => grouped.add(p.id));
+      if (!inGroup.length) continue;
+      sections += `<h3 class="pm-group">${esc(label)}<span>${plural(inGroup.length, 'card')}</span></h3><div class="pm-grid">${inGroup.map(cardHTML).join('')}</div>`;
+    }
+    const others = list.filter((p) => !grouped.has(p.id));
+    if (others.length) sections += `<h3 class="pm-group">Other accounts<span>${plural(others.length, 'account')}</span></h3><div class="pm-grid">${others.map(cardHTML).join('')}</div>`;
+
+    // What is owed and when, gathered in one place instead of one date
+    // buried on each card. Statement balances are not tracked, so this
+    // shows the date and what was spent on the card this month — it does
+    // not claim to be the amount due.
+    const dues = list
+      .filter((p) => !p.archived && p.type === 'credit' && p.dueDay)
+      .map((p) => ({ p, date: nextDue(p.dueDay) }))
+      .filter((d) => d.date)
+      .sort((a, b) => (a.date < b.date ? -1 : 1));
+    const dueCard = dues.length ? UI.card('Payments due', `<div class="list">${dues.map(({ p, date }) => {
+      const away = daysBetween(todayStr(), date);
+      const when = away <= 0 ? 'Today' : away === 1 ? 'Tomorrow' : `In ${plural(away, 'day')}`;
+      return `<div class="list-item click" data-act="pm-edit" data-id="${p.id}"><i class="dot" style="--dot:${colorVar(p.color)}"></i>
+        <div class="li-main"><div class="li-title">${esc(p.name)}${p.last4 ? ` ···· ${esc(p.last4)}` : ''}</div>
+        <div class="li-sub">${esc(fmtDate(date))} · ${esc(when)}</div></div>
+        <div class="li-amt amt">${esc(money(stat(p.id).m, { whole: true }))}</div></div>`;
+    }).join('')}</div><p class="muted small" style="margin-top:10px">Amount shown is what you spent on that card this month, not the statement balance.</p>`, { cls: 's12' }) : '';
+
     const unassigned = sum(S.transactions.filter((t) => !t.pm && t.type === 'expense' && t.date.startsWith(mk)), (t) => t.amount);
-    return `<div class="row between wrap" style="margin-bottom:14px"><p class="note">${icon('shield')}Only nicknames and last 4 digits are stored, encrypted. Never full numbers, CVV or PINs.</p><button class="btn sm" data-act="pm-add">${icon('plus')}Add payment method</button></div>
-      <div class="pm-grid">${cards}</div>
+    return `<div class="row between wrap" style="margin-bottom:14px"><p class="note">${icon('shield')}Only nicknames and last 4 digits are stored, encrypted. Never full numbers, CVV or PINs.</p><button class="btn sm" data-act="pm-add">${icon('plus')}Add card or account</button></div>
+      ${sections}${dueCard ? `<div class="grid" style="margin-top:18px">${dueCard}</div>` : ''}
       <div class="grid" style="margin-top:18px">${pmMonthCard(mk)}${pmBizCard(y)}</div>
       ${unassigned ? `<div class="banner" style="margin-top:18px">${icon('info')}<div class="grow"><span class="amt">${esc(money(unassigned))}</span> of ${esc(monthLabel(mk))} spending has no payment method.</div><button class="btn sm" data-act="pm-unassigned">Review</button></div>` : ''}`;
   },
@@ -2877,7 +2920,7 @@ function pmModal(p = null, preset = {}) {
         ${UI.field('Type', `<select class="select" name="type">${Object.entries(PM_TYPES).map(([k, l]) => `<option value="${k}" ${x.type === k ? 'selected' : ''}>${l}</option>`).join('')}</select>`)}
         ${UI.field('Issuer / bank', `<input class="input" name="issuer" maxlength="40" value="${esc(x.issuer || '')}" placeholder="Optional">`)}
         ${UI.field('Last 4 digits', `<input class="input mono" name="last4" maxlength="4" inputmode="numeric" pattern="\\d{4}" autocomplete="off" value="${esc(x.last4 || '')}" placeholder="1234">`)}
-        ${UI.field('Payment due day', `<input class="input" type="number" name="dueDay" min="1" max="31" value="${esc(x.dueDay || '')}" placeholder="Credit cards, optional">`)}
+        ${x.type === 'credit' || isNew ? UI.field('Payment due day', `<input class="input" type="number" name="dueDay" min="1" max="31" value="${esc(x.dueDay || '')}" placeholder="Optional">`, { cls: 'f-credit' }) : ''}
         <div class="field full"><span class="label">Card color</span>${UI.colorPick('color', x.color)}</div>
         ${isNew ? '' : `<label class="check full"><input type="checkbox" name="archived" ${x.archived ? 'checked' : ''}> Archived (closed card: keeps history, hides it from pickers)</label>`}
       </div>`,
