@@ -3968,7 +3968,10 @@ function pmBizCard(y) {
 const IMP = { jobs: [], tick: null };
 const PDFJS = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/';
 const SOURCE_LABEL = { screenshot: 'Screenshot', statement: 'Statement', receipt: 'Receipt', csv: 'CSV', ofx: 'Bank file', paste: 'Pasted', chat: 'From chat', manual: 'Manual' };
-const aiReady = () => !!Cloud.caps.sample;
+// Two ways to reach Claude: the host page supplies it when the Ledger runs
+// inside claude.ai, otherwise this deployment relays through its own server.
+const SERVER_AI = { enabled: false, checked: false };
+const aiReady = () => !!Cloud.caps.sample || SERVER_AI.enabled;
 const imgReady = () => !!(Cloud.caps.limits && Cloud.caps.limits.images);
 
 /* ---------- helpers ---------- */
@@ -4803,13 +4806,24 @@ function askCardHTML(cls = 's8') {
 }
 async function runAsk(q) {
   const sample = Cloud.caps.sample;
-  if (!sample || ASK.busy || !q.trim()) return;
+  if (ASK.busy || !q.trim() || !aiReady()) return;
   ASK.q = q; ASK.a = ''; ASK.busy = true; ASK.ctl = new AbortController();
   render();
   const out = () => $('#ask-a');
   const prompt = `You are a sharp, friendly personal-finance assistant looking at one person's own books. Answer their question in plain language, under 150 words, using only the data below. Use exact dollar figures from the data. If the data can't answer it, say what's missing. Not tax or investment advice; say "check with your CPA" only when it matters.\n\nDATA:\n${moneyContext()}\n\nQUESTION: ${q.trim().slice(0, 400)}`;
   try {
+    if (sample) {
     await sample(prompt, { signal: ASK.ctl.signal, cache: false, onText: ({ text }) => { ASK.a = text; const el = out(); if (el) { el.hidden = false; el.textContent = text; } } });
+    } else {
+      const res = await fetch('/api/ask', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        signal: ASK.ctl.signal,
+        body: JSON.stringify({ question: q, context: moneyContext() }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.message || ('Claude could not be reached (' + res.status + ')'));
+      ASK.a = body.answer || '';
+    }
   } catch (e) { if (e.code !== 'cancelled') ASK.a = (e.text ? e.text + '\n\n' : '') + sampleErrorText(e); }
   ASK.busy = false; ASK.ctl = null;
   render();
