@@ -5028,10 +5028,23 @@ const INTERNAL_TRANSFER_IN = new Set([
   'TRANSFER_IN_INVESTMENT_AND_RETIREMENT_FUNDS',
   'TRANSFER_IN_CASH_ADVANCES_AND_LOANS',
 ]);
+
+/* The same distinction on the way out, for the same reason. Money moved
+   between your own accounts is not spending — and neither is paying your own
+   credit card, since the purchases on it were already counted. But money sent
+   to another person, wired abroad, or taken out as cash has left, and calling
+   it a transfer understates spending exactly as the incoming rule understated
+   income. */
+const INTERNAL_TRANSFER_OUT = new Set([
+  'TRANSFER_OUT_ACCOUNT_TRANSFER',
+  'TRANSFER_OUT_SAVINGS',
+  'TRANSFER_OUT_INVESTMENT_AND_RETIREMENT_FUNDS',
+]);
 function categorizeFromPFC(pfc) {
   const detailed = pfc && pfc.detailed;
   if (!detailed) return {};
   if (detailed.startsWith('TRANSFER_IN_') && !INTERNAL_TRANSFER_IN.has(detailed)) return { category: 'Other income' };
+  if (detailed.startsWith('TRANSFER_OUT_') && !INTERNAL_TRANSFER_OUT.has(detailed)) return { category: 'Other' };
   if (PFC_MAP[detailed] === TRANSFER || PFC_TRANSFER_PREFIXES.some((p) => detailed.startsWith(p))) return { type: 'transfer' };
   const cat = PFC_MAP[detailed];
   if (cat === WORK_INCOME) return { category: S.settings.incomeDefault || 'Trading payouts' };
@@ -5102,6 +5115,15 @@ ACT['find-dupes'] = () => {
 // to an existing card by last-4 the same way the rest of the app already
 // matches cards (pmByLast4), auto-adding a card if none matches yet.
 function addBankTransactionsDirect(rows, accounts) {
+  // Last four digits of every account you have connected. A description that
+  // names one of them is money moving within your own accounts, whatever
+  // category the bank assigned — without this, moving money between two banks
+  // you own reads as spending at one end and income at the other.
+  const ownMasks = (accounts || []).map((a) => String(a.mask || '')).filter((m) => m.length === 4);
+  const namesOwnAccount = (desc) => {
+    const digits = String(desc || '').match(/d{4,}/g) || [];
+    return digits.some((d) => ownMasks.some((m) => d.endsWith(m)));
+  };
   const acctToPm = {};
   const newPMs = [];
   for (const a of accounts || []) {
@@ -5154,7 +5176,7 @@ function addBankTransactionsDirect(rows, accounts) {
     if (!r.fitid && matchBatch(r.date, cents, r.desc)) { dupes++; continue; }
     const already = matchExisting(r.date, cents, r.desc);
 
-    const isTransfer = r.type === 'transfer' && !detectPropFirmName(r.desc);
+    const isTransfer = (r.type === 'transfer' || namesOwnAccount(r.desc)) && !detectPropFirmName(r.desc);
     const type = isTransfer ? 'transfer' : (r.direction === 'in' ? 'income' : 'expense');
     const desc = cleanDesc(r.desc);
     let cat = '', biz = null;
