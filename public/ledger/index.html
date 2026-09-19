@@ -20,6 +20,12 @@
   --c0: #2a78d6; --c1: #eb6834; --c2: #1baf7a; --c3: #eda100;
   --c4: #e87ba4; --c5: #008300; --c6: #4a3aa7; --c7: #e34948;
   --radius: 20px; --radius-sm: 12px;
+  /* Spacing. One scale, so the gaps between things mean something instead of
+     being whatever looked right that day. Space is the main tool for hierarchy
+     here: room around a figure is what makes it read as important, and room
+     between groups is what tells you where one idea ends. */
+  --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-5: 24px; --sp-6: 32px; --sp-7: 48px;
+
   /* Motion. Durations follow NN/g: ~100ms reads as instant and suits direct
      feedback, 200-300ms suits things entering or leaving, and past ~500ms
      animation starts to feel like waiting. Curves follow Material: ease-out
@@ -637,6 +643,46 @@ body.compact .sub { display: none; }
 .btn:not(.primary) .count { background: var(--accent); color: var(--accent-ink); }
 @media (max-width: 640px) {
   .filter-panel { grid-template-columns: 1fr 1fr; }
+}
+
+/* ============ Rhythm ============
+   Cards were 16px apart with nothing marking where one group of them ended.
+   24px between cards and a labelled break between groups does more for
+   legibility than any amount of restyling the cards themselves. */
+.grid { gap: var(--sp-5); }
+.stats { gap: var(--sp-5); margin-bottom: var(--sp-5); }
+
+.band { margin-top: var(--sp-6); }
+.band:first-of-type { margin-top: var(--sp-5); }
+.band-label { display: flex; align-items: baseline; gap: var(--sp-2); font-size: 12px; font-weight: 650;
+  letter-spacing: .07em; text-transform: uppercase; color: var(--muted); margin-bottom: var(--sp-3); }
+.band-label::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+
+/* A row of figures inside a card. Was repeated as inline styles on every card
+   that needed one; now one class, so they all line up. */
+.figures { display: flex; flex-wrap: wrap; gap: var(--sp-5); margin-bottom: var(--sp-4); }
+.figures > div { min-width: 0; }
+.figures .muted.small { margin-bottom: 2px; }
+
+/* The number that is the point of the card. 28px sits in the band the
+   research puts primary metrics in, and is a clear step above body text
+   without shouting. */
+.stat-lg { font-size: 28px; font-weight: 650; letter-spacing: -.025em; line-height: 1.15; }
+.stat-md { font-size: 18px; font-weight: 600; letter-spacing: -.015em; }
+
+/* Table rows at a comfortable height, dense when asked. */
+.table td { padding: 13px 12px; }
+body.compact .table td { padding-top: 8px; padding-bottom: 8px; }
+
+/* Active nav reads as a place you are, not a button you could press. */
+.nav a.active::before { content: ""; position: absolute; left: 0; top: 50%; transform: translateY(-50%);
+  width: 3px; height: 18px; border-radius: 0 3px 3px 0; background: var(--accent); }
+
+@media (max-width: 640px) {
+  .grid, .stats { gap: var(--sp-4); }
+  .band { margin-top: var(--sp-5); }
+  .stat-lg { font-size: 23px; }
+  .figures { gap: var(--sp-4); }
 }
 
 /* ============ Motion ============
@@ -1929,7 +1975,7 @@ function forecastHTML() {
     labelEvery: Math.ceil(fc.points.length / 6),
   }), 200);
 
-  const body = '<div class="row wrap" style="gap:22px;margin-bottom:14px">'
+  const body = '<div class="figures">'
     + '<div><div class="muted small">Liquid today</div><div class="amt stat-lg">' + esc(money(fc.start)) + '</div></div>'
     + '<div><div class="muted small">Bills due</div><div class="amt stat-lg">' + esc(money(fc.bills)) + '</div></div>'
     + '<div><div class="muted small">Income due</div><div class="amt stat-lg">' + esc(money(fc.income)) + '</div></div>'
@@ -1984,7 +2030,7 @@ function weekReviewHTML() {
     : 'No bills due in the next seven days.';
   const topLine = w.top ? `Biggest: ${esc(w.top.desc)} at ${esc(money(w.top.amount))}.` : '';
   return UI.card('This week', `
-    <div class="row wrap" style="gap:22px;margin-bottom:12px">
+    <div class="figures">
       <div><div class="muted small">Spent</div><div class="amt stat-lg">${esc(money(w.cur))}</div></div>
       <div><div class="muted small">Purchases</div><div class="stat-lg">${w.n}</div></div>
     </div>
@@ -2010,7 +2056,7 @@ function monthReviewHTML(mk) {
       + '</b> at <span class="amt">' + esc(money(r.biggest.amount)) + '</span></p>'
     : '';
   return UI.card('Month in review',
-    '<div class="row wrap" style="gap:22px;margin-bottom:14px">'
+    '<div class="figures">'
     + '<div><div class="muted small">Spent</div><div class="amt stat-lg">' + esc(money(r.cur.expense)) + '</div></div>'
     + '<div><div class="muted small">Earned</div><div class="amt stat-lg">' + esc(money(r.cur.income)) + '</div></div>'
     + '<div><div class="muted small">Net</div><div class="amt stat-lg">' + esc(money(r.cur.net, { sign: true })) + '</div></div>'
@@ -3256,7 +3302,22 @@ VIEWS.dashboard = {
     const pmItems = [...byPm.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6).map(([id, v]) => { const pm = pmOf(id); return { label: pm ? pm.name : 'Not specified', value: v, color: pm ? colorVar(pm.color) : 'var(--muted)', tip: [tipRow('Spent', money(v)), ...(pm && pm.last4 ? [tipRow('Card', '•••• ' + pm.last4)] : [])] }; });
     const pmCard = UI.card('By payment method', hbars(pmItems), { sub: monthLabel(mk), cls: 's4', actions: '<button class="btn sm ghost" data-act="go" data-view="cards">Cards</button>' });
 
-    return `${banner}${stats}<div class="grid">${needsReviewHTML('s12')}${forecastHTML()}${weekReviewHTML()}${goalsCardHTML('s6')}${monthReviewHTML(mk)}${driftHTML()}${cashflow}${hero}${askCardHTML('s8')}${quickImportHTML(aiReady() ? 's4' : 's12')}${pace}${cats}${bills}${recentCard}${pmCard}</div>`;
+    /* Fifteen cards in one undifferentiated grid is the clutter. Grouped
+       into bands, each with a heading, the page answers four questions in
+       order instead of presenting everything at once: is anything wrong,
+       what is coming, how was this month, and where does the money sit.
+       Empty bands disappear rather than leaving a heading over nothing. */
+    const band = (label, ...cards) => {
+      const body = cards.filter(Boolean).join('');
+      if (!body.trim()) return '';
+      return `<section class="band"><h2 class="band-label">${esc(label)}</h2><div class="grid">${body}</div></section>`;
+    };
+    return banner + stats
+      + band('Needs you', needsReviewHTML('s12'), driftHTML())
+      + band('Coming up', forecastHTML(), bills, goalsCardHTML('s6'))
+      + band('This month', weekReviewHTML(), monthReviewHTML(mk), cashflow, pace, cats)
+      + band('Where it sits', hero, pmCard, recentCard)
+      + band('Add and ask', askCardHTML('s8'), quickImportHTML(aiReady() ? 's4' : 's12'));
   },
 };
 function txListItem(x) {
@@ -3904,7 +3965,7 @@ VIEWS.reports = {
     }
     const max = Math.max(...out.entries.map(([, v]) => v.total), 1);
     const bars = out.entries.map(([k, v]) => `<div class="rep-row"><span class="rep-k">${esc(reportLabel(r, k))}</span><span class="rep-bar"><i style="width:${Math.round((v.total / max) * 100)}%"></i></span><span class="rep-v amt">${esc(money(v.total))}</span><span class="rep-n muted small">${v.n}</span></div>`).join('');
-    const stats = `<div class="row wrap" style="gap:22px;margin-bottom:14px">
+    const stats = `<div class="figures">
       <div><div class="muted small">Total</div><div class="amt stat-lg">${esc(money(out.total))}</div></div>
       <div><div class="muted small">Transactions</div><div class="stat-lg">${out.count}</div></div>
       <div><div class="muted small">Average</div><div class="amt stat-lg">${esc(money(out.avg))}</div></div>
@@ -4027,7 +4088,7 @@ VIEWS.cards = {
       .map(([id, v]) => ({ pm: pmOf(id), v }))
       .sort((a, b) => (b.v.interest + b.v.fees) - (a.v.interest + a.v.fees));
     const costCard = cost.total ? UI.card('Interest & Fees', `
-      <div class="row wrap" style="gap:22px;margin-bottom:14px">
+      <div class="figures">
         <div><div class="muted small">Interest</div><div class="amt stat-lg">${esc(money(cost.interest))}</div></div>
         <div><div class="muted small">Fees</div><div class="amt stat-lg">${esc(money(cost.fees))}</div></div>
         <div><div class="muted small">Total in ${esc(fy)}</div><div class="amt stat-lg">${esc(money(cost.total))}</div></div>
@@ -5541,7 +5602,7 @@ function goalDetail(g) {
   const host = goalHost(g.url);
   const body = `
     ${img ? `<div class="goal-hero"><img src="${esc(img)}" alt="" referrerpolicy="no-referrer" onerror="this.closest('.goal-hero').remove()"></div>` : ''}
-    <div class="row wrap" style="gap:22px;margin-bottom:14px">
+    <div class="figures">
       <div><div class="muted small">Price</div><div class="amt stat-lg">${esc(money(g.target))}</div></div>
       <div><div class="muted small">Saved</div><div class="amt stat-lg">${esc(money(g.saved))}</div></div>
       <div><div class="muted small">${f.done ? 'Status' : 'To go'}</div><div class="amt stat-lg">${f.done ? 'Reached' : esc(money(f.left))}</div></div>
