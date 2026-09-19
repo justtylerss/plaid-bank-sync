@@ -20,6 +20,18 @@
   --c0: #2a78d6; --c1: #eb6834; --c2: #1baf7a; --c3: #eda100;
   --c4: #e87ba4; --c5: #008300; --c6: #4a3aa7; --c7: #e34948;
   --radius: 20px; --radius-sm: 12px;
+  /* Motion. Durations follow NN/g: ~100ms reads as instant and suits direct
+     feedback, 200-300ms suits things entering or leaving, and past ~500ms
+     animation starts to feel like waiting. Curves follow Material: ease-out
+     for entrances so the eye can settle on the element as it arrives, ease-in
+     for exits so it accelerates away, standard for moves between two states.
+     Linear is avoided everywhere — it is the one curve that reads as wrong. */
+  --dur-1: 120ms;   /* presses, toggles, hovers */
+  --dur-2: 200ms;   /* small moves, tooltips */
+  --dur-3: 280ms;   /* entrances, modals, view changes */
+  --ease-out: cubic-bezier(0, 0, .2, 1);
+  --ease-in: cubic-bezier(.4, 0, 1, 1);
+  --ease: cubic-bezier(.4, 0, .2, 1);
   --shadow: 0 24px 60px rgba(16,18,20,.16);
   --font: "Geist", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --display: "Onest", "Geist", system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -137,7 +149,7 @@ svg.i { width: 18px; height: 18px; flex: none; stroke: currentColor; fill: none;
   display: inline-flex; align-items: center; justify-content: center; gap: 7px; height: 38px; padding: 0 16px;
   border-radius: 999px; border: 1px solid var(--line); background: var(--surface-2); color: var(--text);
   font-weight: 600; font-size: 13.5px; cursor: pointer; white-space: nowrap; text-decoration: none;
-  transition: background .12s, border-color .12s, transform .06s;
+  transition: background var(--dur-1) var(--ease), border-color var(--dur-1) var(--ease), transform 60ms var(--ease-out);
 }
 .btn:hover { background: var(--surface-3); }
 .btn:active { transform: translateY(1px); }
@@ -401,12 +413,12 @@ tr:hover .row-actions, .row-actions:focus-within { opacity: 1; }
 .modal-wrap {
   position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; padding: 20px;
   background: rgba(5,5,6,.6); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
-  animation: fade .14s ease-out;
+  animation: fade var(--dur-2) var(--ease-out);
 }
 .modal {
   width: 100%; max-width: 560px; max-height: calc(100vh - 40px); display: flex; flex-direction: column;
   background: var(--surface); border: 1px solid var(--card-border); border-radius: 24px; box-shadow: var(--shadow);
-  animation: pop .16s ease-out;
+  animation: pop var(--dur-3) var(--ease-out);
 }
 .modal.wide { max-width: 860px; }
 .modal.narrow { max-width: 420px; }
@@ -515,6 +527,41 @@ tr:hover .row-actions, .row-actions:focus-within { opacity: 1; }
   .card { break-inside: avoid; border-color: #ccc; }
   .privacy .amt { filter: none; }
 }
+/* ============ Motion ============
+   Applied on navigation only, never on every re-render. Re-animating cards
+   each time a filter changes is the single fastest way to make an interface
+   feel slow, and it buries the one signal motion is good for: that the
+   content in front of you has actually changed. */
+@keyframes rise { from { opacity: 0; transform: translateY(10px); } }
+@keyframes shimmer { to { background-position: 200% 0; } }
+
+.view-in > *, .view-in > .grid > * { animation: rise var(--dur-3) var(--ease-out) backwards; }
+.view-in > .grid > *:nth-child(2), .view-in > *:nth-child(2) { animation-delay: 30ms; }
+.view-in > .grid > *:nth-child(3), .view-in > *:nth-child(3) { animation-delay: 60ms; }
+.view-in > .grid > *:nth-child(4), .view-in > *:nth-child(4) { animation-delay: 90ms; }
+.view-in > .grid > *:nth-child(5), .view-in > *:nth-child(5) { animation-delay: 110ms; }
+.view-in > .grid > *:nth-child(6), .view-in > *:nth-child(6) { animation-delay: 130ms; }
+/* Past six the stagger stops growing: a long cascade turns into a queue the
+   person has to wait out. */
+.view-in > .grid > *:nth-child(n+7), .view-in > *:nth-child(n+7) { animation-delay: 140ms; }
+
+/* Charts arrive after their card so the frame settles first. */
+.view-in .chart { animation: rise var(--dur-3) var(--ease-out) 80ms backwards; }
+
+/* Direct manipulation: fast enough to read as the button itself moving. */
+.btn { transition: background var(--dur-1) var(--ease), border-color var(--dur-1) var(--ease), transform 60ms var(--ease-out), opacity var(--dur-1) var(--ease); }
+.btn:active:not(:disabled) { transform: scale(.97); }
+.list-item.click, tr.click { transition: background var(--dur-1) var(--ease); }
+.pm-card { transition: transform var(--dur-2) var(--ease-out), box-shadow var(--dur-2) var(--ease-out); }
+.pm-card:hover { transform: translateY(-2px); }
+
+/* Hiding amounts is a state change worth seeing happen, so it is not instant. */
+.amt { transition: filter var(--dur-2) var(--ease); }
+
+/* Skeletons move so a wait reads as progress rather than a stall. */
+.skel { background: linear-gradient(90deg, var(--surface-2) 0%, var(--surface-3) 50%, var(--surface-2) 100%);
+  background-size: 200% 100%; animation: shimmer 1.2s var(--ease) infinite; }
+
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
 
 /* ============ v2: boot ============ */
@@ -1971,6 +2018,7 @@ const ui = {
   paceRange: Prefs.get('paceRange', 'month'),
   theme: Prefs.get('theme', 'system'),
   txSort: Prefs.get('txSort', 'date-desc'),
+  animateIn: true,
   txSel: new Set(),
   firmTab: 'overview',
 };
@@ -2072,6 +2120,11 @@ function render() {
   $('#topbar').innerHTML = topbarHTML();
   chartJobs.clear();
   $('#view').innerHTML = v.render();
+  // Motion marks a change of place, so it runs on navigation and not on the
+  // many re-renders a filter or a toggle causes.
+  const viewEl = $('#view');
+  if (ui.animateIn) { viewEl.classList.remove('view-in'); void viewEl.offsetWidth; viewEl.classList.add('view-in'); ui.animateIn = false; }
+  else viewEl.classList.remove('view-in');
   mountCharts();
   if (v.after) v.after();
   setSync(syncState);
@@ -2084,6 +2137,7 @@ const parseHash = () => { const v = location.hash.replace(/^#\/?/, '').split('?'
 window.addEventListener('hashchange', () => {
   if (!S) return;
   ui.view = parseHash();
+  ui.animateIn = true;
   document.body.classList.remove('nav-open');
   render();
   window.scrollTo(0, 0);
