@@ -700,7 +700,28 @@ body.compact .sub { display: none; }
 @keyframes swapIn { from { opacity: 0; transform: translateY(4px); } }
 .swap-in > *, .swap-in > .grid > * { animation: swapIn var(--dur-2) var(--ease-out) backwards; }
 
-@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+/* Reduced motion is honoured by default, because for people with vestibular
+   disorders this is an accessibility setting and not a preference. But a
+   blanket override also means someone whose OS has animation switched off —
+   which is the Windows default on plenty of machines — silently gets a dead
+   interface with no way to tell why. So the person can overrule it explicitly:
+   data-motion="full" opts back in, data-motion="off" opts out regardless. */
+@media (prefers-reduced-motion: reduce) {
+  :root:not([data-motion="full"]) * { animation: none !important; transition: none !important; }
+}
+:root[data-motion="off"] * { animation: none !important; transition: none !important; }
+
+/* Full motion turns the entrance up: further to travel and a little scale, so
+   the page arrives rather than appears. */
+:root[data-motion="full"] .view-in > *,
+:root[data-motion="full"] .view-in > .grid > * { animation-name: riseBig; animation-duration: 340ms; }
+@keyframes riseBig { from { opacity: 0; transform: translateY(16px) scale(.985); } }
+:root[data-motion="full"] .list-item.click:hover,
+:root[data-motion="full"] tr.click:hover { transform: translateX(4px); }
+:root[data-motion="full"] .pm-card:hover { transform: translateY(-4px) scale(1.01); }
+:root[data-motion="full"] .btn:active:not(:disabled) { transform: scale(.94); }
+:root[data-motion="full"] .progress i, :root[data-motion="full"] .rep-bar i {
+  animation: grow 520ms var(--ease-out) backwards; transform-origin: left center; }
 
 /* ============ v2: boot ============ */
 .boot { min-height: 70vh; display: grid; place-content: center; justify-items: center; gap: 14px; text-align: center; padding-inline: 16px; }
@@ -777,6 +798,8 @@ body.dragging::after { content: "Drop to import"; position: fixed; inset: 12px; 
 (function () {
   try {
     var t = localStorage.getItem('lvc-theme');
+    var mo = localStorage.getItem('lvc-motion');
+    if (mo && mo !== 'system') document.documentElement.setAttribute('data-motion', mo);
     if (t && t !== 'system') document.documentElement.setAttribute('data-theme', t);
   } catch (e) { /* private mode: fall back to the system theme */ }
 })();
@@ -2422,6 +2445,7 @@ const ui = {
   cashflowMonths: Number(Prefs.get('cashflowMonths', '6')) || 6,
   paceRange: Prefs.get('paceRange', 'month'),
   theme: Prefs.get('theme', 'system'),
+  motion: Prefs.get('motion', 'system'),
   txSort: Prefs.get('txSort', 'date-desc'),
   animateIn: true,
   swapIn: false,
@@ -3285,7 +3309,7 @@ VIEWS.transactions = {
       ${sel('type', [['', 'All types'], ['expense', 'Expenses'], ['income', 'Income'], ['transfer', 'Transfers']])}
       ${sel('cat', [['', 'All categories'], ...S.categories.map((c) => [c.id, c.name])])}
       ${sel('pm', [['', 'All cards & accounts'], ['_none', 'Not specified'], ...S.paymentMethods.map((p) => [p.id, p.name + (p.last4 ? ' ··' + p.last4 : '')])])}
-      ${sel('biz', [['', 'Business + personal'], ['business', 'Business only'], ['personal', 'Personal only'], ...S.businesses.map((b) => [b.id, b.name])])}
+      ${sel('biz', [['', 'All'], ['business', 'Business only'], ['personal', 'Personal only'], ...S.businesses.map((b) => [b.id, b.name])])}
       <select class="select" data-change="txsort" aria-label="Sort transactions">${TX_SORTS.map(([v, label]) => `<option value="${v}" ${ui.txSort === v ? 'selected' : ''}>${esc(label)}</option>`).join('')}</select>
     </div><div id="tx-results">${txResultsHTML()}</div>`;
   },
@@ -3779,7 +3803,7 @@ VIEWS.reports = {
       ${UI.field('To', dateIn('to'))}
       ${UI.field('Type', sel('type', [['', 'All types'], ['expense', 'Expenses'], ['income', 'Income'], ['transfer', 'Transfers']]))}
       ${UI.field('Category', sel('cat', [['', 'All categories'], ...S.categories.map((c) => [c.id, c.name])]))}
-      ${UI.field('Business', sel('biz', [['', 'Business + personal'], ['business', 'Business only'], ['personal', 'Personal only']]))}
+      ${UI.field('Business', sel('biz', [['', 'All'], ['business', 'Business only'], ['personal', 'Personal only']]))}
       ${UI.field('Group by', sel('group', [['month', 'Month'], ['category', 'Category'], ['card', 'Card'], ['firm', 'Prop firm']]))}
       </div>
       <div class="toolbar" style="margin-top:12px"><button class="btn sm" data-act="rep-reset">Reset</button><span class="spacer"></span><button class="btn sm" data-act="rep-export">${icon('download')}Export CSV</button><button class="btn sm primary" data-act="rep-save">${icon('plus')}Save report</button></div></section>`;
@@ -5547,6 +5571,7 @@ VIEWS.settings = {
       <div class="set-row"><div><div class="sr-t">Auto-hide amounts</div><div class="sr-d">Blur every number after you've been away.</div></div>${sel('set-idle', st.idleHideMin || 0, [[0, 'Off'], [2, 'After 2 min'], [5, 'After 5 min'], [10, 'After 10 min'], [30, 'After 30 min']])}</div>
       <div class="set-row"><div><div class="sr-t">Hide amounts now</div><div class="sr-d">For screen sharing. Shortcut: H</div></div><label class="switch"><input type="checkbox" id="set-privacy" data-change="set-privacy" ${ui.privacy ? 'checked' : ''} aria-label="Hide amounts"></label></div>`);
     const data = UI.card('Data', `
+      <div class="set-row"><div><div class="sr-t">Bring in new defaults</div><div class="sr-d">Adds categories and write-off categories that exist for new accounts but not yours. Nothing is renamed, reordered or removed.</div></div><button class="btn sm" data-act="sync-defaults">${icon('download')}Check</button></div>
       <div class="set-row"><div><div class="sr-t">Re-scan transactions</div><div class="sr-d">Check everything already in your books against the latest prop firm list and your rules. Fills gaps only — anything you set yourself is kept. Undoable.</div></div><button class="btn sm" data-act="rescan">${icon('refresh')}Re-scan</button></div>
       <div class="set-row"><div><div class="sr-t">Import statements, screenshots & files</div><div class="sr-d">PDF, images, CSV, OFX/QFX. Shortcut: I</div></div><button class="btn sm accent" data-act="go" data-view="import">${icon('upload')}Open import</button></div>
       <div class="set-row"><div><div class="sr-t">Backup file</div><div class="sr-d">Everything as one JSON file. ${st.lastBackupAt ? `Last: ${esc(fmtDate(st.lastBackupAt.slice(0, 10), { year: true }))}` : 'Never downloaded.'}</div></div><button class="btn sm" data-act="backup-download">${icon('download')}Download</button></div>
@@ -5558,7 +5583,8 @@ VIEWS.settings = {
       <div class="set-row"><div><div class="sr-t">Tax set-aside rate</div><div class="sr-d">Used for the "set aside" estimates. Not a tax calculation.</div></div><div class="input-wrap" style="width:96px;flex:none"><input class="input" id="set-taxpct" data-change="set-taxpct" inputmode="decimal" value="${esc(st.taxPct)}" style="padding-right:28px;text-align:right" aria-label="Tax set-aside percent"><span class="suffix">%</span></div></div>
       <div class="set-row"><div><div class="sr-t">Self-employed income lands in</div><div class="sr-d">Banks report trading payouts and sales commissions the same way, so pick which one they are for you.</div></div>${sel('set-incomedef', st.incomeDefault || 'Trading payouts', catsOfKind('income').map((c) => [c.name, c.name]))}</div>
       <div class="set-row"><div><div class="sr-t">Theme</div><div class="sr-d">Applies to Bank Sync as well. Stored on this device.</div></div>${sel('set-theme', ui.theme, [['system', 'Follow system'], ['light', 'Light'], ['blue', 'Light blue'], ['dark', 'Dark']])}</div>
-      <div class="set-row"><div><div class="sr-t">Row density</div><div class="sr-d">Compact fits more on screen. Useful once a table is long enough to scroll.</div></div><button class="btn sm" data-act="density">${ui.compact ? 'Comfortable' : 'Compact'}</button></div>`);
+      <div class="set-row"><div><div class="sr-t">Row density</div><div class="sr-d">Compact fits more on screen. Useful once a table is long enough to scroll.</div></div><button class="btn sm" data-act="density">${ui.compact ? 'Comfortable' : 'Compact'}</button></div>
+      <div class="set-row"><div><div class="sr-t">Animation</div><div class="sr-d">${esc(motionStatusText())}</div></div>${sel('set-motion', ui.motion, [['system', 'Follow system'], ['full', 'Full'], ['off', 'Off']])}</div>`);
     const chat = UI.card('Import from any Claude chat', `
       <p class="text-2" style="margin-bottom:12px">Send Claude screenshots, statements or receipts in a chat and say <b>“add these to Ledger Vault Cloud”</b>. Claude reads them and drops the transactions in your inbox here, tagged “From chat”, for you to approve.</p>
       <div class="note">${icon('info')}<span>Nothing is added to your books until you approve it.</span></div>`);
@@ -5595,6 +5621,72 @@ function applyTheme(v) {
   else document.documentElement.setAttribute('data-theme', v);
 }
 const THEME_LABEL = { system: 'Following your system', light: 'Light', blue: 'Light blue', dark: 'Dark' };
+/* ---------- Bringing new defaults into an existing account ----------
+   Settings merge on load, so a newly added setting reaches every account on
+   its own. Lists do not: categories, write-off categories and businesses are
+   yours to edit, so the app will not quietly rewrite them — which also means
+   a category added to the defaults after you signed up never appears.
+
+   This closes that gap by adding what is missing and touching nothing else.
+   Matching is by name, so a category you renamed is treated as yours and is
+   not duplicated back in. Nothing is renamed, reordered or removed. */
+function missingDefaults() {
+  const base = defaultState();
+  const have = (list) => new Set(list.map((x) => norm(x.name)));
+  const haveCats = have(S.categories);
+  const haveBcs = have(S.bizCats);
+  const haveBiz = have(S.businesses);
+  return {
+    categories: base.categories.filter((c) => !haveCats.has(norm(c.name))),
+    bizCats: base.bizCats.filter((c) => !haveBcs.has(norm(c.name))),
+    businesses: base.businesses.filter((b) => !haveBiz.has(norm(b.name))),
+  };
+}
+ACT['sync-defaults'] = async () => {
+  const miss = missingDefaults();
+  const n = miss.categories.length + miss.bizCats.length;
+  if (!n) { toast('Nothing new — your lists already have everything.'); return; }
+  const names = miss.categories.concat(miss.bizCats).map((c) => c.name).join(', ');
+  const okGo = await confirmDialog({
+    title: `Add ${plural(n, 'missing item')}?`,
+    message: `<b>${esc(names)}</b><br><br>These exist for new accounts but not yours. Nothing is renamed, reordered or removed — they are only added.`,
+    confirmText: 'Add them',
+    danger: false,
+  });
+  if (!okGo) return;
+  // Businesses are deliberately excluded: adding one back to somebody who
+  // deleted it is the opposite of helpful.
+  commit(() => {
+    S.categories.push(...miss.categories.map((c) => ({ ...c, id: uid() })));
+    S.bizCats.push(...miss.bizCats.map((c) => ({ ...c, id: uid() })));
+  }, `${plural(n, 'item')} added`);
+};
+
+/* ---------- Motion ----------
+   Reduced motion is an accessibility setting and is honoured by default. It is
+   also off by default on plenty of Windows machines, which silently produces a
+   dead interface with nothing explaining why — so the choice is surfaced and
+   can be overruled in either direction. */
+function applyMotion(v) {
+  ui.motion = v;
+  Prefs.set('motion', v);
+  if (v === 'system') document.documentElement.removeAttribute('data-motion');
+  else document.documentElement.setAttribute('data-motion', v);
+}
+const systemWantsLessMotion = () => {
+  try { return window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) { return false; }
+};
+function motionStatusText() {
+  if (ui.motion === 'off') return 'Animation is off because you turned it off here.';
+  if (ui.motion === 'full') return systemWantsLessMotion()
+    ? 'Animation is on because you asked for it here, overriding your system setting.'
+    : 'Animation is on.';
+  return systemWantsLessMotion()
+    ? 'Your system asks for reduced motion, so animation is currently off. Choose Full to override it.'
+    : 'Following your system, which currently allows animation.';
+}
+CHG['set-motion'] = (el) => { applyMotion(el.value); render(); toast(motionStatusText()); };
+
 CHG['set-theme'] = (el) => { applyTheme(el.value); toast(THEME_LABEL[el.value] || 'Theme changed'); };
 
 CHG['set-privacy'] = () => togglePrivacy();
@@ -5931,6 +6023,7 @@ function loadingHTML() {
 }
 function mountApp() {
   document.body.classList.toggle('compact', ui.compact);
+  applyMotion(ui.motion);
   $('#app').innerHTML = shellHTML();
   ui.view = parseHash();
   if (!location.hash) { try { history.replaceState(null, '', '#/dashboard'); } catch (e) { /* sandboxed */ } }
