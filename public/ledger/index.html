@@ -1213,6 +1213,40 @@ function postRecurring(r) {
 }
 
 /* ---------- Rules / autofill ---------- */
+// Applying a rule to what is already in the books, not just to what arrives
+// next. Matching is the same substring test matchRule() uses, so a rule
+// behaves identically forwards and backwards.
+//
+// Only fields the rule actually sets are touched, and a category is applied
+// only when its kind matches the transaction's own type — an income category
+// must never land on an expense. Receipt state is a property of the specific
+// transaction, not of the rule, so it is preserved.
+function applyRuleToPast(rule, skipId) {
+  const m = norm(rule.match);
+  if (!m) return [];
+  const touched = [];
+  for (const t of S.transactions) {
+    if (t.id === skipId || t.type === 'transfer') continue;
+    if (!norm(t.desc).includes(m)) continue;
+    const snapshot = { id: t.id, cat: t.cat, pm: t.pm, biz: t.biz ? JSON.parse(JSON.stringify(t.biz)) : null };
+    const c = catOf(rule.cat);
+    if (c && c.kind === t.type) t.cat = rule.cat;
+    if (rule.pm) t.pm = rule.pm;
+    if (rule.biz) t.biz = { ...rule.biz, receipt: !!(t.biz && t.biz.receipt), rnote: (t.biz && t.biz.rnote) || '' };
+    const changed = snapshot.cat !== t.cat || snapshot.pm !== t.pm
+      || JSON.stringify(snapshot.biz) !== JSON.stringify(t.biz);
+    if (changed) touched.push(snapshot);
+  }
+  return touched;
+}
+function undoRuleToPast(snapshots) {
+  for (const s of snapshots) {
+    const t = byId(S.transactions, s.id);
+    if (!t) continue;
+    t.cat = s.cat; t.pm = s.pm; t.biz = s.biz;
+  }
+}
+
 function matchRule(desc) {
   const d = norm(desc);
   if (!d) return null;
@@ -2054,7 +2088,11 @@ function bizBoxHTML(biz, type) {
   const b = biz || {};
   const bizId = b.b || (S.businesses[0] && S.businesses[0].id) || '';
   const cats = bizCatsFor(bizId);
-  const firms = [...new Set(S.transactions.filter((t) => t.biz && t.biz.firm).map((t) => t.biz.firm.trim()))].sort();
+  // Firms you've already used, plus every firm the app can recognise, so the
+  // dropdown offers the full list rather than only your own history. Still a
+  // free-text field underneath — a firm nobody has heard of can just be typed.
+  const usedFirms = S.transactions.filter((t) => t.biz && t.biz.firm).map((t) => t.biz.firm.trim());
+  const firms = [...new Set([...usedFirms, ...PROP_FIRM_PATTERNS.map(([n]) => n)])].filter(Boolean).sort((a, b) => a.localeCompare(b));
   return `<fieldset class="biz-box" data-biz-box>
     <label class="switch"><input type="checkbox" name="isBiz" ${biz ? 'checked' : ''}><span data-biz-label>${type === 'income' ? 'Business income (payout, commission)' : 'Business expense · tax write-off'}</span></label>
     <div class="form-grid" data-biz-fields ${biz ? '' : 'hidden'}>
@@ -2165,7 +2203,7 @@ function txModal(tx = null, preset = {}, opts = {}) {
     ${bizBoxHTML(t.biz, t.type)}
     <div class="receipt-row" data-receipt><input type="hidden" name="receiptId" value="${esc(t.receiptId || '')}"><div data-rc-view></div></div>
     <p class="note" data-autofill hidden style="margin-top:12px">${icon('zap')}<span></span></p>
-    <label class="check" style="margin-top:14px"><input type="checkbox" name="mkRule"> <span>Always categorize “<span data-rule-desc>${esc(t.desc || 'this description')}</span>” this way</span></label>`;
+    <label class="check" style="margin-top:14px"><input type="checkbox" name="mkRule"> <span>Always categorize “<span data-rule-desc>${esc(t.desc || 'this description')}</span>” this way <span class="muted">— including ones already in your books</span></span></label>`;
   const footerLeft = fromInbox ? `<button type="button" class="btn danger" data-close data-act="ib-del" data-id="${esc(fromInbox)}">${icon('x')}<span class="hide-sm">Discard</span></button>` : isNew ? '' : `<button type="button" class="btn danger" data-close data-act="tx-del" data-id="${esc(t.id)}">${icon('trash')}<span class="hide-sm">Delete</span></button><button type="button" class="btn ghost" data-close data-act="tx-dup" data-id="${esc(t.id)}">${icon('copy')}<span class="hide-sm">Duplicate</span></button>`;
   const footer = `${footerLeft}<span class="spacer"></span><button type="submit" class="btn ${fromInbox ? 'accent' : 'primary'}" style="order:1">${fromInbox ? 'Approve' : isNew ? 'Add' : 'Save'}</button>${isNew && !fromInbox ? '<button type="submit" class="btn" name="another" value="1">Save & add another</button>' : '<button type="button" class="btn" data-close>Cancel</button>'}`;
   openModal({
@@ -2242,6 +2280,7 @@ function txModal(tx = null, preset = {}, opts = {}) {
       if (rid) { rec.receiptId = rid; if (rec.biz) { rec.biz.receipt = true; if (!rec.biz.rnote) rec.biz.rnote = 'Photo stored in Ledger Vault'; } }
       if (t.receiptId && t.receiptId !== rid && Cloud.caps.assets) Cloud.caps.assets.delete(t.receiptId).catch(() => {});
       const another = !!(submitter && submitter.name === 'another');
+      let retro = [];
       commit(() => {
         if (fromInbox) S.inbox = S.inbox.filter((i) => i.id !== fromInbox);
         if (isNew) S.transactions.push(rec);
@@ -2252,8 +2291,19 @@ function txModal(tx = null, preset = {}, opts = {}) {
           const existing = S.rules.find((r) => norm(r.match) === m);
           const rule = { id: existing ? existing.id : uid(), match: desc.toLowerCase(), cat, pm: rec.pm, biz: biz ? { b: biz.b, c: biz.c, pct: biz.pct, firm: biz.firm } : null };
           if (existing) Object.assign(existing, rule); else S.rules.push(rule);
+          // Reach backwards too: a rule the person just set is almost always
+          // meant to describe what this merchant has always been, not only
+          // what it will be from now on.
+          retro = applyRuleToPast(rule, rec.id);
         }
       }, fromInbox ? `Approved ${desc}` : isNew ? `Added ${money(type === 'income' ? amount : -amount)} · ${desc}` : 'Transaction updated');
+      if (retro.length) {
+        const snaps = retro;
+        toast(`${plural(snaps.length, 'earlier transaction')} updated to match`, '', {
+          label: 'Undo',
+          fn: () => commit(() => undoRuleToPast(snaps), `${plural(snaps.length, 'transaction')} put back`),
+        });
+      }
       if (another) setTimeout(() => txModal(null, { date, type, pm: rec.pm }), 0);
     },
   });
