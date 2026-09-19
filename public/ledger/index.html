@@ -5009,9 +5009,29 @@ const PFC_MAP = {
   LOAN_PAYMENTS_CREDIT_CARD_PAYMENT: TRANSFER,
 };
 const PFC_TRANSFER_PREFIXES = ['TRANSFER_IN_', 'TRANSFER_OUT_', 'LOAN_DISBURSEMENTS_'];
+
+/* Moving your own money is not income; being paid is. Plaid reports both as
+   TRANSFER_IN and only the detailed code tells them apart, so treating the
+   whole family as transfers quietly erased real income — a transfer counts
+   towards neither total, so the money arrived and then appeared nowhere.
+
+   These four stay transfers because they genuinely are: money between your own
+   accounts, into savings or investments, or borrowed. Everything else arriving
+   under TRANSFER_IN — a deposit, a Zelle from another person, a payout routed
+   through a processor — is money you did not have before, and is counted.
+
+   It lands in Other income rather than being guessed at, which puts anything
+   sizeable in front of you on the Needs Review card. */
+const INTERNAL_TRANSFER_IN = new Set([
+  'TRANSFER_IN_ACCOUNT_TRANSFER',
+  'TRANSFER_IN_SAVINGS',
+  'TRANSFER_IN_INVESTMENT_AND_RETIREMENT_FUNDS',
+  'TRANSFER_IN_CASH_ADVANCES_AND_LOANS',
+]);
 function categorizeFromPFC(pfc) {
   const detailed = pfc && pfc.detailed;
   if (!detailed) return {};
+  if (detailed.startsWith('TRANSFER_IN_') && !INTERNAL_TRANSFER_IN.has(detailed)) return { category: 'Other income' };
   if (PFC_MAP[detailed] === TRANSFER || PFC_TRANSFER_PREFIXES.some((p) => detailed.startsWith(p))) return { type: 'transfer' };
   const cat = PFC_MAP[detailed];
   if (cat === WORK_INCOME) return { category: S.settings.incomeDefault || 'Trading payouts' };
@@ -5101,7 +5121,7 @@ function addBankTransactionsDirect(rows, accounts) {
 
   const existingFitids = new Set(S.transactions.filter((t) => t.fitid).map((t) => t.fitid));
   const toAdd = [];
-  let dupes = 0, skipped = 0;
+  let dupes = 0, skipped = 0, repaired = 0;
 
   /* Duplicate detection has to survive buying the same thing twice.
    
@@ -5132,12 +5152,13 @@ function addBankTransactionsDirect(rows, accounts) {
     const cents = Math.round(r.amount * 100);
     // Only rows with no id of their own get compared within the batch.
     if (!r.fitid && matchBatch(r.date, cents, r.desc)) { dupes++; continue; }
-    if (matchExisting(r.date, cents, r.desc)) { dupes++; continue; }
+    const already = matchExisting(r.date, cents, r.desc);
 
     const isTransfer = r.type === 'transfer' && !detectPropFirmName(r.desc);
     const type = isTransfer ? 'transfer' : (r.direction === 'in' ? 'income' : 'expense');
     const desc = cleanDesc(r.desc);
     let cat = '', biz = null;
+
     if (!isTransfer) {
       const rule = matchRule(desc);
       if (rule) {
@@ -5156,19 +5177,35 @@ function addBankTransactionsDirect(rows, accounts) {
       if (!cat && r.category) { const c = byName(catsOfKind(type), r.category); if (c) cat = c.id; }
       if (!cat) cat = fallbackCat(type);
     }
+    /* A refresh re-states what the bank says about every transaction, which
+       makes it the moment to correct rows an earlier version filed wrongly.
+       One correction only — transfer to income or expense, and only where the
+       bank now says so. A transfer counts towards neither total, so a row
+       stuck as one is money that vanished from both. A category you chose
+       yourself is never overwritten. */
+    if (already) {
+      if (already.type === 'transfer' && type !== 'transfer') {
+        already.type = type;
+        if (!already.cat || !catOf(already.cat) || (catOf(already.cat) || {}).kind !== type) already.cat = cat;
+        if (!already.biz && biz) already.biz = biz;
+        repaired++;
+      }
+      dupes++;
+      continue;
+    }
     toAdd.push({
       id: uid(), created: Date.now() + toAdd.length, date: r.date, type, amount: cents,
       desc, cat, pm: acctToPm[r.accountId] || '', notes: '', tags: ['bank sync'], biz,
       ...(r.fitid ? { fitid: r.fitid } : {}),
     });
   }
-  if (toAdd.length || newPMs.length) {
+  if (toAdd.length || newPMs.length || repaired) {
     commit(() => {
       if (newPMs.length) S.paymentMethods.push(...newPMs);
       if (toAdd.length) S.transactions.push(...toAdd);
     });
   }
-  return { added: toAdd.length, dupes, skipped, newCards: newPMs.length };
+  return { added: toAdd.length, dupes, skipped, repaired, newCards: newPMs.length };
 }
 
 ACT['imp-banksync'] = async () => {
@@ -5201,6 +5238,7 @@ ACT['imp-banksync'] = async () => {
     const out = addBankTransactionsDirect(rows, accounts);
     const parts = [`${plural(out.added, 'transaction')} added`];
     if (out.dupes) parts.push(`${out.dupes} already up to date`);
+    if (out.repaired) parts.push(`${plural(out.repaired, 'transfer')} corrected to income or expense`);
     if (out.newCards) parts.push(`${plural(out.newCards, 'card')} added`);
     jobUpdate(job, { status: 'done', ended: Date.now(), msg: parts.join(' · ') });
     toast(out.added ? `${plural(out.added, 'new transaction')} added to your books` : 'Already up to date — nothing new.');
