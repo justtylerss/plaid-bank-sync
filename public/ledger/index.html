@@ -5533,9 +5533,49 @@ ACT['biz-add'] = () => bizModal();
 ACT['biz-edit'] = (el) => { const b = bizOf(el.dataset.id); if (b) bizModal(b); };
 ACT['biz-del'] = async (el) => {
   const b = bizOf(el.dataset.id); if (!b) return;
-  const n = S.transactions.filter((t) => t.biz && t.biz.b === b.id).length + S.trips.filter((t) => t.b === b.id).length;
-  if (n) { toast(`${b.name} has ${plural(n, 'record')}. Rename it instead of deleting.`, 'err'); return; }
-  if (await confirmDialog({ title: `Delete ${b.name}?`, message: 'No records use it.', confirmText: 'Delete' })) commit(() => { S.businesses = S.businesses.filter((x) => x.id !== b.id); if (ui.bizTab === b.id) ui.bizTab = 'all'; }, 'Deleted');
+  const txs = S.transactions.filter((t) => t.biz && t.biz.b === b.id);
+  const trips = S.trips.filter((t) => t.b === b.id);
+  const recs = S.recurring.filter((r) => r.biz && r.biz.b === b.id);
+  const rules = S.rules.filter((r) => r.biz && r.biz.b === b.id);
+  const n = txs.length + trips.length + recs.length + rules.length;
+
+  // Nothing attached: straightforward.
+  if (!n) {
+    if (await confirmDialog({ title: `Delete ${b.name}?`, message: 'Nothing uses it.', confirmText: 'Delete' })) {
+      commit(() => { S.businesses = S.businesses.filter((x) => x.id !== b.id); if (ui.bizTab === b.id) ui.bizTab = 'all'; }, 'Deleted');
+    }
+    return;
+  }
+
+  // Something is attached. Refusing outright leaves no way to retire a line of
+  // work you no longer do, so offer the two honest outcomes instead: move the
+  // records somewhere else, or drop the business tagging and keep them as
+  // personal. Either way the transactions themselves survive.
+  const others = S.businesses.filter((x) => x.id !== b.id);
+  const opts = others.map((x) => [x.id, `Move them to ${x.name}`]).concat([['_personal', 'Make them personal (no business)']]);
+  openModal({
+    title: `Delete ${b.name}?`,
+    size: 'narrow',
+    submitText: 'Delete business',
+    danger: true,
+    body: `<p class="text-2" style="margin-bottom:12px">${plural(n, 'record')} still ${n === 1 ? 'points' : 'point'} at <b>${esc(b.name)}</b> — ${plural(txs.length, 'transaction')}${trips.length ? `, ${plural(trips.length, 'mileage trip')}` : ''}${recs.length ? `, ${plural(recs.length, 'bill')}` : ''}${rules.length ? `, ${plural(rules.length, 'rule')}` : ''}. Nothing is deleted except the business itself.</p>
+      ${UI.field('What happens to them', `<select class="select" name="dest">${opts.map(([v, l]) => `<option value="${esc(v)}">${esc(l)}</option>`).join('')}</select>`, { cls: 'full' })}`,
+    onSubmit(fd) {
+      const dest = String(fd.get('dest') || '_personal');
+      const toPersonal = dest === '_personal';
+      const target = toPersonal ? null : bizOf(dest);
+      if (!toPersonal && !target) { toast('Pick where they should go', 'err'); return false; }
+      commit(() => {
+        for (const t of txs) t.biz = toPersonal ? null : { ...t.biz, b: target.id, c: '' };
+        for (const r of recs) r.biz = toPersonal ? null : { ...r.biz, b: target.id, c: '' };
+        for (const r of rules) r.biz = toPersonal ? null : { ...r.biz, b: target.id, c: '' };
+        if (toPersonal) S.trips = S.trips.filter((t) => t.b !== b.id);
+        else for (const t of trips) t.b = target.id;
+        S.businesses = S.businesses.filter((x) => x.id !== b.id);
+        if (ui.bizTab === b.id) ui.bizTab = 'all';
+      }, toPersonal ? `${b.name} deleted · ${plural(n, 'record')} now personal` : `${b.name} deleted · ${plural(n, 'record')} moved to ${target.name}`);
+    },
+  });
 };
 function bcModal(c = null) {
   const isNew = !c;
