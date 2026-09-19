@@ -1442,20 +1442,6 @@ function propFirmReviewHTML() {
   return `<div class="grid">${cards.join('')}</div>${note}`;
 }
 
-ACT['firm-fix'] = (el) => {
-  const t = byId(S.transactions, el.dataset.id);
-  if (!t) return;
-  const kind = el.dataset.kind || '';
-  commit(() => { attributeToFirm(t, kind || null); }, `${t.desc} counted`);
-};
-ACT['firm-fix-all'] = () => {
-  const { clear } = propFirmUnattributed();
-  if (!clear.length) return;
-  let n = 0;
-  commit(() => { for (const p of clear) if (attributeToFirm(p.t, null)) n++; }, '');
-  toast(`${plural(n, 'transaction')} added to your prop firm totals`);
-};
-
 /* ---------- Sample data (for exploring the app) ---------- */
 function loadSampleData() {
   const d = S;
@@ -3996,6 +3982,19 @@ VIEWS.propfirms = {
 };
 ACT.firmyear = (el) => { ui.firmYear = el.dataset.y; render(); };
 ACT.firmtab = (el) => { ui.firmTab = el.dataset.t; render(); };
+ACT['firm-fix'] = (el) => {
+  const t = byId(S.transactions, el.dataset.id);
+  if (!t) return;
+  const kind = el.dataset.kind || '';
+  commit(() => { attributeToFirm(t, kind || null); }, `${t.desc} counted`);
+};
+ACT['firm-fix-all'] = () => {
+  const { clear } = propFirmUnattributed();
+  if (!clear.length) return;
+  let n = 0;
+  commit(() => { for (const p of clear) if (attributeToFirm(p.t, null)) n++; }, '');
+  toast(`${plural(n, 'transaction')} added to your prop firm totals`);
+};
 ACT['firm-open'] = (el) => { ui.tx = { q: el.dataset.firm, scope: 'all', type: '', cat: '', pm: '', biz: 'business', receipt: '' }; go('transactions'); };
 ACT['firm-log'] = (el) => {
   const b = S.businesses.find((x) => x.kind === 'trading');
