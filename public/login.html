@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bank Sync — Sign in</title>
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: #fafafa; color: #1a1a1a;
+    display: flex; align-items: center; justify-content: center;
+    min-height: 100vh; margin: 0; padding: 20px;
+  }
+  @media (prefers-color-scheme: dark) {
+    body { background: #111; color: #eee; }
+    .card { background: #1b1b1b !important; border-color: #2c2c2c !important; }
+    input { background: #141414 !important; border-color: #333 !important; color: #eee !important; }
+  }
+  .card {
+    background: #fff; border: 1px solid #e5e5e5; border-radius: 14px;
+    padding: 28px; width: 100%; max-width: 360px;
+  }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .sub { color: #777; font-size: 13px; margin-bottom: 20px; }
+  label { display: block; font-size: 13px; font-weight: 600; margin: 14px 0 6px; }
+  input {
+    width: 100%; padding: 9px 10px; border-radius: 8px; border: 1px solid #ddd;
+    font: inherit; box-sizing: border-box;
+  }
+  button {
+    width: 100%; margin-top: 20px; font: inherit; font-weight: 600; font-size: 14px;
+    padding: 10px; border-radius: 8px; border: none; cursor: pointer;
+    background: #16a34a; color: #fff;
+  }
+  button:disabled { opacity: .6; cursor: default; }
+  .toggle { text-align: center; margin-top: 16px; font-size: 13px; color: #777; }
+  .toggle a { color: #16a34a; text-decoration: none; font-weight: 600; cursor: pointer; }
+  .error { color: #c0392b; font-size: 13px; margin-top: 12px; display: none; }
+</style>
+</head>
+<body>
+
+<div class="card">
+  <h1 id="title">Sign in</h1>
+  <div class="sub" id="subtitle">Your bank sync, just for you.</div>
+
+  <form id="form">
+    <div id="nameField" hidden>
+      <label for="name">Name (optional)</label>
+      <input id="name" name="name" type="text" autocomplete="name">
+    </div>
+    <label for="email">Email</label>
+    <input id="email" name="email" type="email" autocomplete="email" required>
+    <label for="password">Password</label>
+    <input id="password" name="password" type="password" autocomplete="current-password" required>
+    <button id="submitBtn" type="submit">Sign in</button>
+    <div class="error" id="error"></div>
+  </form>
+
+  <div class="toggle">
+    <span id="toggleText">Don't have an account?</span>
+    <a id="toggleLink">Sign up</a>
+  </div>
+</div>
+
+<script>
+let mode = 'login'; // or 'signup'
+
+const $ = (s) => document.querySelector(s);
+const title = $('#title'), subtitle = $('#subtitle'), nameField = $('#nameField');
+const submitBtn = $('#submitBtn'), toggleText = $('#toggleText'), toggleLink = $('#toggleLink');
+const errorEl = $('#error'), passwordInput = $('#password');
+
+function applyMode() {
+  if (mode === 'login') {
+    title.textContent = 'Sign in';
+    subtitle.textContent = 'Your bank sync, just for you.';
+    nameField.hidden = true;
+    submitBtn.textContent = 'Sign in';
+    toggleText.textContent = "Don't have an account?";
+    toggleLink.textContent = 'Sign up';
+    passwordInput.autocomplete = 'current-password';
+  } else {
+    title.textContent = 'Create an account';
+    subtitle.textContent = 'Each account keeps its own connected banks and transactions.';
+    nameField.hidden = false;
+    submitBtn.textContent = 'Create account';
+    toggleText.textContent = 'Already have an account?';
+    toggleLink.textContent = 'Sign in';
+    passwordInput.autocomplete = 'new-password';
+  }
+  errorEl.style.display = 'none';
+}
+
+toggleLink.addEventListener('click', () => {
+  mode = mode === 'login' ? 'signup' : 'login';
+  applyMode();
+});
+
+$('#form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  errorEl.style.display = 'none';
+  submitBtn.disabled = true;
+  try {
+    const body = {
+      email: $('#email').value.trim(),
+      password: passwordInput.value,
+    };
+    if (mode === 'signup') body.name = $('#name').value.trim();
+
+    const res = await fetch(mode === 'login' ? '/api/auth/login' : '/api/auth/signup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Something went wrong.');
+    window.location.href = '/';
+  } catch (err) {
+    errorEl.textContent = err.message;
+    errorEl.style.display = 'block';
+  } finally {
+    submitBtn.disabled = false;
+  }
+});
+
+applyMode();
+</script>
+</body>
+</html>

@@ -41,9 +41,19 @@
   .pos { color: #1e8449; }
   .institutions { font-size: 13px; color: #555; margin-top: 8px; }
   .empty { color: #999; font-size: 13px; padding: 10px 0; }
+  .accountBar {
+    display: flex; align-items: center; justify-content: space-between;
+    font-size: 13px; color: #777; margin-bottom: 18px;
+  }
+  .accountBar button { padding: 5px 12px; font-size: 12.5px; }
 </style>
 </head>
 <body>
+
+<div class="accountBar">
+  <span id="whoami"></span>
+  <button id="logoutBtn" class="secondary">Log out</button>
+</div>
 
 <h1>Bank Sync</h1>
 <div class="sub">Connects live via Plaid, then exports a CSV formatted for Ledger Vault Cloud's importer.</div>
@@ -70,12 +80,26 @@ function setStatus(msg) { statusEl.textContent = msg || ''; }
 
 async function api(path, opts) {
   const res = await fetch(path, opts);
+  if (res.status === 401) {
+    window.location.href = '/login.html';
+    throw new Error('Not signed in.');
+  }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(body.error ? JSON.stringify(body.error) : `${res.status} ${res.statusText}`);
   }
   return res.json();
 }
+
+async function requireSession() {
+  const { user } = await api('/api/auth/me');
+  $('#whoami').textContent = 'Signed in as ' + (user.name ? `${user.name} (${user.email})` : user.email);
+}
+
+$('#logoutBtn').addEventListener('click', async () => {
+  await fetch('/api/auth/logout', { method: 'POST' });
+  window.location.href = '/login.html';
+});
 
 async function loadInstitutions() {
   const items = await api('/api/items');
@@ -159,7 +183,7 @@ $('#exportBtn').addEventListener('click', () => {
   window.location.href = '/api/export.csv';
 });
 
-refreshAll();
+requireSession().then(refreshAll);
 </script>
 </body>
 </html>
