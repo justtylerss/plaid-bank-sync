@@ -637,6 +637,56 @@ body.compact .sub { display: none; }
 .skel { background: linear-gradient(90deg, var(--surface-2) 0%, var(--surface-3) 50%, var(--surface-2) 100%);
   background-size: 200% 100%; animation: shimmer 1.2s var(--ease) infinite; }
 
+/* ============ Interaction motion ============
+   The first pass put motion on navigation and almost nowhere else, on the
+   reasoning that re-animating on every keystroke makes an interface feel slow.
+   That reasoning holds for whole-view entrances. It does not hold for the
+   controls themselves: a button, a row or a tab should visibly respond to
+   being used, and at 120ms that reads as the control moving rather than as an
+   animation playing. */
+
+/* Rows acknowledge the pointer. The nudge is 2px — enough to notice, small
+   enough that a long list does not appear to wobble. */
+.list-item.click, tr.click { transition: background var(--dur-1) var(--ease), transform var(--dur-1) var(--ease-out); }
+.list-item.click:hover, tr.click:hover { transform: translateX(2px); }
+.list-item.click:active, tr.click:active { transform: translateX(1px) scale(.998); }
+
+/* Tabs and segmented controls: the indicator should travel, not teleport. */
+.seg button, .pill-tabs button { transition: background var(--dur-2) var(--ease), color var(--dur-1) var(--ease), box-shadow var(--dur-2) var(--ease); }
+.pill-tabs button.on, .seg button.active { transition-duration: var(--dur-2); }
+
+/* Inputs and selects settle rather than snap. */
+.input, .select { transition: border-color var(--dur-1) var(--ease), box-shadow var(--dur-1) var(--ease), background var(--dur-1) var(--ease); }
+
+/* Chips, badges and icon buttons. */
+.chip, .badge { transition: background var(--dur-1) var(--ease), color var(--dur-1) var(--ease); }
+.icon-btn { transition: background var(--dur-1) var(--ease), transform var(--dur-1) var(--ease-out); }
+.icon-btn:hover { transform: scale(1.08); }
+.icon-btn:active { transform: scale(.94); }
+
+/* Cards lift a little under the pointer where they are clickable. */
+.list-item.click:hover, .cal-cell:hover { background: var(--surface-2); }
+.cal-cell { transition: background var(--dur-1) var(--ease), border-color var(--dur-1) var(--ease); }
+.cal-pill { transition: background var(--dur-1) var(--ease), color var(--dur-1) var(--ease), transform var(--dur-1) var(--ease-out); }
+.cal-pill:hover { transform: translateX(2px); }
+
+/* The toast arrives from below, which is where it lives. */
+@keyframes toastIn { from { opacity: 0; transform: translateY(12px); } }
+.toast { animation: toastIn var(--dur-3) var(--ease-out); }
+
+/* Report bars grow from nothing rather than appearing at full length. */
+@keyframes grow { from { transform: scaleX(0); } }
+.rep-bar i { transform-origin: left center; animation: grow var(--dur-3) var(--ease-out) backwards; }
+
+/* Checkboxes and switches are direct manipulation: fastest of all. */
+.switch input, input[type=checkbox] { transition: background var(--dur-1) var(--ease); }
+.switch input::after { transition: transform var(--dur-1) var(--ease-out); }
+
+/* Content that swaps inside a view — a tab, a range — gets a short fade so the
+   change is legible without re-running the full entrance. */
+@keyframes swapIn { from { opacity: 0; transform: translateY(4px); } }
+.swap-in > *, .swap-in > .grid > * { animation: swapIn var(--dur-2) var(--ease-out) backwards; }
+
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
 
 /* ============ v2: boot ============ */
@@ -2361,6 +2411,7 @@ const ui = {
   theme: Prefs.get('theme', 'system'),
   txSort: Prefs.get('txSort', 'date-desc'),
   animateIn: true,
+  swapIn: false,
   forecastDays: Number(Prefs.get('forecastDays', '60')) || 60,
   compact: Prefs.get('compact', '0') === '1',
   txSel: new Set(),
@@ -2478,8 +2529,9 @@ function render() {
   // Motion marks a change of place, so it runs on navigation and not on the
   // many re-renders a filter or a toggle causes.
   const viewEl = $('#view');
-  if (ui.animateIn) { viewEl.classList.remove('view-in'); void viewEl.offsetWidth; viewEl.classList.add('view-in'); ui.animateIn = false; }
-  else viewEl.classList.remove('view-in');
+  if (ui.animateIn) { viewEl.classList.remove('view-in', 'swap-in'); void viewEl.offsetWidth; viewEl.classList.add('view-in'); ui.animateIn = false; }
+  else if (ui.swapIn) { viewEl.classList.remove('view-in', 'swap-in'); void viewEl.offsetWidth; viewEl.classList.add('swap-in'); ui.swapIn = false; }
+  else viewEl.classList.remove('view-in', 'swap-in');
   mountCharts();
   if (v.after) v.after();
   setSync(syncState);
@@ -2732,11 +2784,11 @@ ACT['open-nav'] = () => document.body.classList.add('nav-open');
 ACT['close-nav'] = () => document.body.classList.remove('nav-open');
 ACT.privacy = () => togglePrivacy();
 ACT['cf-range'] = (el) => { ui.cashflowMonths = Number(el.dataset.months) || 6; Prefs.set('cashflowMonths', String(ui.cashflowMonths)); render(); };
-ACT['pace-range'] = (el) => { ui.paceRange = el.dataset.range || 'month'; Prefs.set('paceRange', ui.paceRange); render(); };
-ACT['fc-range'] = (el) => { ui.forecastDays = Number(el.dataset.days) || 60; Prefs.set('forecastDays', String(ui.forecastDays)); render(); };
+ACT['pace-range'] = (el) => { ui.paceRange = el.dataset.range || 'month'; Prefs.set('paceRange', ui.paceRange); ui.swapIn = true; render(); };
+ACT['fc-range'] = (el) => { ui.forecastDays = Number(el.dataset.days) || 60; Prefs.set('forecastDays', String(ui.forecastDays)); ui.swapIn = true; render(); };
 ACT.density = () => { ui.compact = !ui.compact; Prefs.set('compact', ui.compact ? '1' : '0'); document.body.classList.toggle('compact', ui.compact); render(); toast(ui.compact ? 'Compact rows' : 'Comfortable rows'); };
 ACT.noop = () => {};
-ACT.month = (el) => { const d = Number(el.dataset.d); ui.month = d === 0 ? curMonth() : addMonths(ui.month, d); render(); };
+ACT.month = (el) => { const d = Number(el.dataset.d); ui.month = d === 0 ? curMonth() : addMonths(ui.month, d); ui.swapIn = true; render(); };
 ACT.go = (el) => go(el.dataset.view);
 
 /* =========================================================
@@ -4987,8 +5039,8 @@ VIEWS.propfirms = {
     return `${toolbar}${body}${propFirmReviewHTML()}`;
   },
 };
-ACT.firmyear = (el) => { ui.firmYear = el.dataset.y; render(); };
-ACT.firmtab = (el) => { ui.firmTab = el.dataset.t; render(); };
+ACT.firmyear = (el) => { ui.firmYear = el.dataset.y; ui.swapIn = true; render(); };
+ACT.firmtab = (el) => { ui.firmTab = el.dataset.t; ui.swapIn = true; render(); };
 ACT['firm-fix'] = (el) => {
   const t = byId(S.transactions, el.dataset.id);
   if (!t) return;
