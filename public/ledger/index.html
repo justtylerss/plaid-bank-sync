@@ -3211,7 +3211,7 @@ function txResultsHTML() {
   const allShownSelected = shown.length > 0 && nSel === shown.length;
   const bulkBar = nSel
     ? `<button class="btn sm ghost danger" data-act="tx-del-selected">${icon('trash')}Delete ${nSel} selected</button><button class="btn sm ghost" data-act="tx-select-toggle">Select none</button>`
-    : `<button class="btn sm ghost" data-act="csv-import">${icon('upload')}Import CSV</button><button class="btn sm ghost" data-act="tx-export">${icon('download')}Export</button>`;
+    : `<button class="btn sm ghost" data-act="rescan" title="Re-check every transaction against the latest prop firm list and your rules">${icon('refresh')}Re-scan</button><button class="btn sm ghost" data-act="csv-import">${icon('upload')}Import CSV</button><button class="btn sm ghost" data-act="tx-export">${icon('download')}Export</button>`;
   return `<div class="summary-strip"><span>${esc(scopeLabel)}</span><span><b>${list.length}</b> transactions</span><span>In <b class="amt">${esc(money(inc))}</b></span><span>Out <b class="amt">${esc(money(out))}</b></span><span>Net <b class="amt">${esc(money(inc - out, { sign: true }))}</b></span>${ded ? `<span>Deductible <b class="amt">${esc(money(ded))}</b></span>` : ''}<span class="spacer"></span>${bulkBar}</div>
   <div class="card flush"><div class="table-wrap"><table class="table"><thead><tr><th class="cb"><input type="checkbox" data-act="tx-select-toggle" ${allShownSelected ? 'checked' : ''} aria-label="Select all shown"></th><th class="hide-sm">Date</th><th>Description</th><th class="hide-sm">Category</th><th class="hide-md">Paid with</th><th class="hide-sm">Business</th><th class="num">Amount</th><th class="hide-sm"><span class="sr-only">Actions</span></th></tr></thead><tbody>${shown.map(txRow).join('')}</tbody></table></div>
   ${list.length > shown.length ? `<div class="show-more"><button class="btn sm" data-act="tx-more">Show ${Math.min(150, list.length - shown.length)} more of ${list.length - shown.length}</button></div>` : ''}</div>`;
@@ -4857,7 +4857,7 @@ VIEWS.business = {
     const y = ui.year;
     const d = bizYearData(y);
     const toolbar = `<div class="toolbar no-print">${yearNav()}${bizTabs()}<span class="spacer"></span>
-      <button class="btn sm" data-act="biz-print">${icon('printer')}<span class="hide-sm">Print</span></button>
+      <button class="btn sm" data-act="rescan">${icon('refresh')}<span class="hide-sm">Re-scan</span></button><button class="btn sm" data-act="biz-print">${icon('printer')}<span class="hide-sm">Print</span></button>
       <button class="btn sm primary" data-act="biz-export">${icon('download')}CPA export</button></div>`;
     const hasAny = S.transactions.some((t) => t.biz) || S.trips.length;
     if (!hasAny) {
