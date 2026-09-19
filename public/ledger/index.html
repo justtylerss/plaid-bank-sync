@@ -5004,12 +5004,37 @@ function addBankTransactionsDirect(rows, accounts) {
   const existingFitids = new Set(S.transactions.filter((t) => t.fitid).map((t) => t.fitid));
   const toAdd = [];
   let dupes = 0, skipped = 0;
+
+  /* Duplicate detection has to survive buying the same thing twice.
+   
+     Two rules, and the distinction matters. A row from the bank carries
+     Plaid's transaction id, which is unique per transaction — so two rows in
+     one batch are two real transactions, however identical they look, and
+     fuzzy-matching them against each other is simply wrong. That check exists
+     for CSV and statement imports, where there is no id to trust.
+   
+     Against what is already in the books the fuzzy check still earns its
+     place, because relinking a bank reissues every id. But it now *consumes*:
+     each existing transaction can absorb at most one incoming row. Without
+     that, a single $87 evaluation fee already on file would swallow every
+     other $87 fee in the import — which is exactly what was happening. */
+  const claimed = new Set();
+  const matchExisting = (date, cents, desc) => {
+    const t = S.transactions.find((x) => !claimed.has(x.id) && x.amount === cents
+      && Math.abs(daysBetween(x.date, date)) <= 3 && (x.date === date || similarDesc(x.desc, desc)));
+    if (t) claimed.add(t.id);
+    return t;
+  };
+  const matchBatch = (date, cents, desc) => toAdd.find((x) => !claimed.has(x.id) && x.amount === cents
+    && Math.abs(daysBetween(x.date, date)) <= 3 && (x.date === date || similarDesc(x.desc, desc)));
+
   for (const r of rows) {
     if (!validDate(r.date) || !(r.amount > 0)) { skipped++; continue; }
     if (r.fitid && existingFitids.has(r.fitid)) { dupes++; continue; }
     const cents = Math.round(r.amount * 100);
-    const batchDup = toAdd.some((x) => x.amount === cents && Math.abs(daysBetween(x.date, r.date)) <= 3 && (x.date === r.date || similarDesc(x.desc, r.desc)));
-    if (batchDup || findDuplicate(r.date, cents, r.desc)) { dupes++; continue; }
+    // Only rows with no id of their own get compared within the batch.
+    if (!r.fitid && matchBatch(r.date, cents, r.desc)) { dupes++; continue; }
+    if (matchExisting(r.date, cents, r.desc)) { dupes++; continue; }
 
     const isTransfer = r.type === 'transfer' && !detectPropFirmName(r.desc);
     const type = isTransfer ? 'transfer' : (r.direction === 'in' ? 'income' : 'expense');
