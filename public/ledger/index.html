@@ -4353,6 +4353,25 @@ const SOURCE_LABEL = { screenshot: 'Screenshot', statement: 'Statement', receipt
 // inside claude.ai, otherwise this deployment relays through its own server.
 const SERVER_AI = { enabled: false, checked: false };
 const aiReady = () => !!Cloud.caps.sample || SERVER_AI.enabled;
+
+// Ask the server once whether it can reach Claude. Done after the first
+// paint rather than blocking it, and it re-renders only if the answer
+// changes what is on screen — a deployment with no key should not flicker a
+// panel in and out.
+async function probeServerAI() {
+  if (SERVER_AI.checked) return;
+  SERVER_AI.checked = true;
+  try {
+    const res = await fetch('/api/ai/status');
+    if (!res.ok) return;
+    const d = await res.json();
+    if (d && d.enabled) {
+      SERVER_AI.enabled = true;
+      SERVER_AI.model = d.model || null;
+      if (S) render();
+    }
+  } catch (e) { /* offline or no endpoint: leave the panel hidden */ }
+}
 const imgReady = () => !!(Cloud.caps.limits && Cloud.caps.limits.images);
 
 /* ---------- helpers ---------- */
@@ -6417,6 +6436,7 @@ async function boot() {
     loadSampleData();
   }
   mountApp();
+  probeServerAI();
 }
 boot();
 
