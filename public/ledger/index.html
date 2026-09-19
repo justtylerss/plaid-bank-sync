@@ -107,24 +107,26 @@ svg.i { width: 18px; height: 18px; flex: none; stroke: currentColor; fill: none;
 .brand small { display: block; font-family: var(--font); font-weight: 500; font-size: 11px; color: var(--muted); letter-spacing: .04em; text-transform: uppercase; margin-top: 1px; }
 
 /* ============ App shell ============ */
-.app { display: grid; grid-template-columns: 244px minmax(0, 1fr); min-height: 100vh; }
+.app { display: grid; grid-template-columns: 256px minmax(0, 1fr); min-height: 100vh; }
 .sidebar {
   position: sticky; top: env(safe-area-inset-top, 0px); height: 100vh; overflow-y: auto; display: flex; flex-direction: column;
-  padding: 18px 12px 14px; border-right: 1px solid var(--line); background: var(--bg); z-index: 30;
+  padding: var(--sp-4) var(--sp-3) var(--sp-3); border-right: 1px solid var(--line); background: var(--bg); z-index: 30;
 }
-.sidebar .brand { padding: 4px 8px 18px; }
-.nav-group { margin-bottom: 14px; }
-.nav-label { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); padding: 6px 10px 4px; }
+.sidebar .brand { padding: var(--sp-1) var(--sp-3) var(--sp-5); }
+.nav-group { margin-bottom: var(--sp-5); }
+.nav-label { font-size: 11px; font-weight: 650; text-transform: uppercase; letter-spacing: .09em; color: var(--muted);
+  padding: 0 var(--sp-3) var(--sp-2); }
 .nav a {
-  display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 999px;
-  color: var(--text-2); text-decoration: none; font-weight: 500; position: relative;
+  display: flex; align-items: center; gap: var(--sp-3); min-height: 36px; padding: 0 var(--sp-3);
+  border-radius: 999px; color: var(--text-2); text-decoration: none; font-weight: 500;
+  font-size: 13.5px; position: relative; margin-bottom: 2px;
 }
 .nav a:hover { background: var(--surface-3); color: var(--text); }
-.nav a.active { background: var(--surface); color: var(--text); box-shadow: 0 0 0 1px var(--card-border); }
-.nav a.active svg { color: var(--accent-text); }
+.nav a.active { background: var(--accent-soft); color: var(--accent-text); font-weight: 600; }
+.nav a.active svg { color: var(--accent); }
 .nav a > span:not(.count) { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .nav a .count { margin-left: auto; font-size: 11px; background: var(--accent-soft); color: var(--accent-text); border-radius: 20px; padding: 1px 7px; font-weight: 600; }
-.side-foot { margin-top: auto; padding-top: 12px; border-top: 1px solid var(--line); display: grid; gap: 8px; }
+.side-foot { margin-top: auto; padding-top: var(--sp-3); border-top: 1px solid var(--line); display: grid; gap: var(--sp-2); }
 .save-status { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); padding: 0 8px; }
 .save-status .led { width: 7px; height: 7px; border-radius: 50%; background: var(--pos); box-shadow: 0 0 0 3px color-mix(in srgb, var(--pos) 20%, transparent); }
 .save-status.saving .led { background: var(--warn); box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 20%, transparent); }
@@ -693,10 +695,10 @@ body.compact .table td { padding-top: 8px; padding-bottom: 8px; }
 @keyframes rise { from { opacity: 0; transform: translateY(10px); } }
 @keyframes shimmer { to { background-position: 200% 0; } }
 
-.view-in > *, .view-in > .grid > * { animation: rise var(--dur-3) var(--ease-out) backwards; }
-.view-in > .grid > *:nth-child(2), .view-in > *:nth-child(2) { animation-delay: 30ms; }
-.view-in > .grid > *:nth-child(3), .view-in > *:nth-child(3) { animation-delay: 60ms; }
-.view-in > .grid > *:nth-child(4), .view-in > *:nth-child(4) { animation-delay: 90ms; }
+.view-in > *, .view-in > .grid > *, .view-in .band > .grid > * { animation: rise var(--dur-3) var(--ease-out) backwards; }
+.view-in .band > .grid > *:nth-child(2), .view-in > .grid > *:nth-child(2), .view-in > *:nth-child(2) { animation-delay: 30ms; }
+.view-in .band > .grid > *:nth-child(3), .view-in > .grid > *:nth-child(3), .view-in > *:nth-child(3) { animation-delay: 60ms; }
+.view-in .band > .grid > *:nth-child(4), .view-in > .grid > *:nth-child(4), .view-in > *:nth-child(4) { animation-delay: 90ms; }
 .view-in > .grid > *:nth-child(5), .view-in > *:nth-child(5) { animation-delay: 110ms; }
 .view-in > .grid > *:nth-child(6), .view-in > *:nth-child(6) { animation-delay: 130ms; }
 /* Past six the stagger stops growing: a long cascade turns into a queue the
@@ -768,7 +770,7 @@ body.compact .table td { padding-top: 8px; padding-bottom: 8px; }
 /* Content that swaps inside a view — a tab, a range — gets a short fade so the
    change is legible without re-running the full entrance. */
 @keyframes swapIn { from { opacity: 0; transform: translateY(4px); } }
-.swap-in > *, .swap-in > .grid > * { animation: swapIn var(--dur-2) var(--ease-out) backwards; }
+.swap-in > *, .swap-in > .grid > *, .swap-in .band > .grid > * { animation: swapIn var(--dur-2) var(--ease-out) backwards; }
 
 /* Reduced motion is honoured by default, because for people with vestibular
    disorders this is an accessibility setting and not a preference. But a
@@ -784,7 +786,8 @@ body.compact .table td { padding-top: 8px; padding-bottom: 8px; }
 /* Full motion turns the entrance up: further to travel and a little scale, so
    the page arrives rather than appears. */
 :root[data-motion="full"] .view-in > *,
-:root[data-motion="full"] .view-in > .grid > * { animation-name: riseBig; animation-duration: 340ms; }
+:root[data-motion="full"] .view-in > .grid > *,
+:root[data-motion="full"] .view-in .band > .grid > * { animation-name: riseBig; animation-duration: 340ms; }
 @keyframes riseBig { from { opacity: 0; transform: translateY(16px) scale(.985); } }
 :root[data-motion="full"] .list-item.click:hover,
 :root[data-motion="full"] tr.click:hover { transform: translateX(4px); }
@@ -868,8 +871,8 @@ body.dragging::after { content: "Drop to import"; position: fixed; inset: 12px; 
 (function () {
   try {
     var t = localStorage.getItem('lvc-theme');
-    var mo = localStorage.getItem('lvc-motion');
-    if (mo && mo !== 'system') document.documentElement.setAttribute('data-motion', mo);
+    var mo = localStorage.getItem('lvc-motion') || 'full';
+    if (mo !== 'system') document.documentElement.setAttribute('data-motion', mo);
     if (t && t !== 'system') document.documentElement.setAttribute('data-theme', t);
   } catch (e) { /* private mode: fall back to the system theme */ }
 })();
@@ -2518,7 +2521,7 @@ const ui = {
   cashflowMonths: Number(Prefs.get('cashflowMonths', '6')) || 6,
   paceRange: Prefs.get('paceRange', 'month'),
   theme: Prefs.get('theme', 'system'),
-  motion: Prefs.get('motion', 'system'),
+  motion: Prefs.get('motion', 'full'),
   txFilters: Prefs.get('txFilters', '0') === '1',
   txSort: Prefs.get('txSort', 'date-desc'),
   animateIn: true,
@@ -5736,7 +5739,7 @@ VIEWS.settings = {
       <div class="set-row"><div><div class="sr-t">Self-employed income lands in</div><div class="sr-d">Banks report trading payouts and sales commissions the same way, so pick which one they are for you.</div></div>${sel('set-incomedef', st.incomeDefault || 'Trading payouts', catsOfKind('income').map((c) => [c.name, c.name]))}</div>
       <div class="set-row"><div><div class="sr-t">Theme</div><div class="sr-d">Applies to Bank Sync as well. Stored on this device.</div></div>${sel('set-theme', ui.theme, [['system', 'Follow system'], ['light', 'Light'], ['blue', 'Light blue'], ['dark', 'Dark']])}</div>
       <div class="set-row"><div><div class="sr-t">Row density</div><div class="sr-d">Compact fits more on screen. Useful once a table is long enough to scroll.</div></div><button class="btn sm" data-act="density">${ui.compact ? 'Comfortable' : 'Compact'}</button></div>
-      <div class="set-row"><div><div class="sr-t">Animation</div><div class="sr-d">${esc(motionStatusText())}</div></div>${sel('set-motion', ui.motion, [['system', 'Follow system'], ['full', 'Full'], ['off', 'Off']])}</div>`);
+      <div class="set-row"><div><div class="sr-t">Animation</div><div class="sr-d">${esc(motionStatusText())}</div></div>${sel('set-motion', ui.motion, [['full', 'Full (default)'], ['system', 'Follow system'], ['off', 'Off']])}</div>`);
     const chat = UI.card('Import from any Claude chat', `
       <p class="text-2" style="margin-bottom:12px">Send Claude screenshots, statements or receipts in a chat and say <b>“add these to Ledger Vault Cloud”</b>. Claude reads them and drops the transactions in your inbox here, tagged “From chat”, for you to approve.</p>
       <div class="note">${icon('info')}<span>Nothing is added to your books until you approve it.</span></div>`);
@@ -5834,7 +5837,7 @@ function motionStatusText() {
     ? 'Animation is on because you asked for it here, overriding your system setting.'
     : 'Animation is on.';
   return systemWantsLessMotion()
-    ? 'Your system asks for reduced motion, so animation is currently off. Choose Full to override it.'
+    ? 'Following your system, which asks for reduced motion — animation is off. Choose Full to override it.'
     : 'Following your system, which currently allows animation.';
 }
 CHG['set-motion'] = (el) => { applyMotion(el.value); render(); toast(motionStatusText()); };

@@ -222,6 +222,10 @@ app.post('/api/create_link_token', requireAuth, async (req, res) => {
       user: { client_user_id: req.userId },
       client_name: 'Ledger Vault Sync',
       products: ['transactions'],
+      // Best-effort: fetched where the institution supports it, ignored where it
+      // does not. Listing it under `products` instead would filter Link down to
+      // only institutions offering liabilities.
+      optional_products: ['liabilities'],
       country_codes: COUNTRY_CODES,
       language: 'en',
       transactions: { days_requested: days },
@@ -578,6 +582,54 @@ app.post('/api/ask', requireAuth, async (req, res) => {
   }
 });
 
+
+// APR, statement balance, minimum payment and the real due date per card.
+// Only available on Items linked with the liabilities product, and only from
+// institutions that report it — so this returns what it can and names what it
+// could not, rather than failing the whole call.
+app.get('/api/liabilities', requireAuth, async (req, res) => {
+  const mine = getItemsForUser(req.userId);
+  const accounts = getAccounts();
+  const cards = [];
+  const errors = [];
+
+  for (const [, item] of mine) {
+    try {
+      const r = await plaidClient.liabilitiesGet({ access_token: item.accessToken });
+      for (const c of (r.data.liabilities && r.data.liabilities.credit) || []) {
+        const acct = accounts[c.account_id] || {};
+        // A card can carry several APRs (purchases, cash advance, balance
+        // transfer). The purchase APR is the one people mean.
+        const aprs = c.aprs || [];
+        const purchase = aprs.find((a) => a.apr_type === 'purchase_apr') || aprs[0] || null;
+        cards.push({
+          account_id: c.account_id,
+          name: acct.name || null,
+          mask: acct.mask || null,
+          institution_name: item.institutionName || 'Connected account',
+          apr: purchase ? purchase.apr_percentage : null,
+          apr_type: purchase ? purchase.apr_type : null,
+          aprs: aprs.map((a) => ({ type: a.apr_type, pct: a.apr_percentage })),
+          last_statement_balance: c.last_statement_balance ?? null,
+          last_statement_date: c.last_statement_issue_date || null,
+          minimum_payment: c.minimum_payment_amount ?? null,
+          next_payment_due_date: c.next_payment_due_date || null,
+          is_overdue: c.is_overdue ?? null,
+        });
+      }
+    } catch (err) {
+      const detail = err.response?.data || {};
+      // PRODUCT_NOT_READY and NO_LIABILITY_ACCOUNTS are ordinary for a bank
+      // that was linked before this, or that does not report terms.
+      errors.push({
+        institution: item.institutionName || 'Connected account',
+        error_code: detail.error_code || 'UNKNOWN',
+        message: detail.error_message || err.message,
+      });
+    }
+  }
+  res.json({ cards, errors });
+});
 
 // Return the signed-in user's transactions, newest first.
 app.get('/api/transactions', requireAuth, (req, res) => {
