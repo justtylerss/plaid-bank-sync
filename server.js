@@ -60,6 +60,7 @@ const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
 const USERS_FILE = path.join(DATA_DIR, 'users.json');
 const ITEMS_FILE = path.join(DATA_DIR, 'items.json');
 const TX_FILE = path.join(DATA_DIR, 'transactions.json');
+const ACCOUNTS_FILE = path.join(DATA_DIR, 'accounts.json');
 
 function readJSON(file, fallback) {
   try {
@@ -94,6 +95,12 @@ function getItemsForUser(userId) {
 // so listing/export/sync can filter without a real database.
 function getTransactions() { return readJSON(TX_FILE, {}); }
 function saveTransactions(tx) { writeJSON(TX_FILE, tx); }
+
+// accounts: { [account_id]: { userId, itemId, name, official_name, mask, type, subtype, balances } }
+// Plaid sends this alongside every transactionsSync response — real balance
+// and masked-account-number data, not something we compute ourselves.
+function getAccounts() { return readJSON(ACCOUNTS_FILE, {}); }
+function saveAccounts(accts) { writeJSON(ACCOUNTS_FILE, accts); }
 
 // ---------------------------------------------------------------------------
 // Auth helpers
@@ -249,6 +256,7 @@ async function syncItem(itemId) {
   let cursor = item.cursor || undefined;
   let added = 0, modified = 0, removed = 0, hasMore = true;
   const allTx = getTransactions();
+  const allAccts = getAccounts();
 
   while (hasMore) {
     const response = await plaidClient.transactionsSync({
@@ -260,6 +268,18 @@ async function syncItem(itemId) {
     for (const t of data.added) { allTx[t.transaction_id] = { ...t, userId: item.userId }; added++; }
     for (const t of data.modified) { allTx[t.transaction_id] = { ...t, userId: item.userId }; modified++; }
     for (const t of data.removed) { delete allTx[t.transaction_id]; removed++; }
+    for (const a of data.accounts || []) {
+      allAccts[a.account_id] = {
+        userId: item.userId,
+        itemId,
+        name: a.name,
+        official_name: a.official_name,
+        mask: a.mask,
+        type: a.type,
+        subtype: a.subtype,
+        balances: a.balances,
+      };
+    }
 
     cursor = data.next_cursor;
     hasMore = data.has_more;
@@ -269,6 +289,7 @@ async function syncItem(itemId) {
   items[itemId] = item;
   saveItems(items);
   saveTransactions(allTx);
+  saveAccounts(allAccts);
 
   return { added, modified, removed };
 }
@@ -294,6 +315,25 @@ app.get('/api/items', requireAuth, (req, res) => {
     item_id,
     institution_name: v.institutionName,
   }));
+  res.json(list);
+});
+
+// List the signed-in user's accounts (balances, masked numbers), each
+// carrying its institution's name for display.
+app.get('/api/accounts', requireAuth, (req, res) => {
+  const items = getItems();
+  const list = Object.entries(getAccounts())
+    .filter(([, a]) => a.userId === req.userId)
+    .map(([account_id, a]) => ({
+      account_id,
+      name: a.name,
+      official_name: a.official_name,
+      mask: a.mask,
+      type: a.type,
+      subtype: a.subtype,
+      balances: a.balances,
+      institution_name: (items[a.itemId] || {}).institutionName || 'Connected account',
+    }));
   res.json(list);
 });
 
@@ -327,7 +367,51 @@ app.get('/api/export.csv', requireAuth, (req, res) => {
   res.send(csv);
 });
 
-// Plaid webhook receiver — called by Plaid, not by a signed-in browser, so
+// ---- Ledger Vault Cloud: generic per-user JSON document store -------------
+// Backs the ported /ledger page. One file per doc, under
+// data/ledger/<userId>/<docId>.json — mirrors exactly the doc shape the
+// page already expects (config, wealth, inbox, tx-YYYY-MM, trips-YYYY).
+const LEDGER_ROOT = path.join(DATA_DIR, 'ledger');
+const LEDGER_DOC_ID_RE = /^[a-zA-Z0-9_.-]{1,80}$/;
+const LEDGER_MAX_DOC_BYTES = 2 * 1024 * 1024; // generous; client already caps itself at 250KB/doc
+
+function ledgerUserDir(userId) {
+  return path.join(LEDGER_ROOT, userId);
+}
+
+app.get('/api/ledger/docs', requireAuth, (req, res) => {
+  const dir = ledgerUserDir(req.userId);
+  const out = {};
+  try {
+    for (const file of fs.readdirSync(dir)) {
+      if (!file.endsWith('.json')) continue;
+      const id = file.slice(0, -5);
+      try { out[id] = JSON.parse(fs.readFileSync(path.join(dir, file), 'utf8')); } catch (e) { /* skip a corrupt doc rather than fail the whole load */ }
+    }
+  } catch (e) { /* no docs yet for this user — empty object is correct */ }
+  res.json(out);
+});
+
+app.put('/api/ledger/docs/:id', requireAuth, (req, res) => {
+  const { id } = req.params;
+  if (!LEDGER_DOC_ID_RE.test(id)) return res.status(400).json({ error: 'invalid_doc_id' });
+  const json = JSON.stringify(req.body ?? {});
+  if (Buffer.byteLength(json, 'utf8') > LEDGER_MAX_DOC_BYTES) return res.status(413).json({ error: 'doc_too_large' });
+  const dir = ledgerUserDir(req.userId);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, `${id}.json`), json);
+  res.json({ ok: true });
+});
+
+app.delete('/api/ledger/docs/:id', requireAuth, (req, res) => {
+  const { id } = req.params;
+  if (!LEDGER_DOC_ID_RE.test(id)) return res.status(400).json({ error: 'invalid_doc_id' });
+  const file = path.join(ledgerUserDir(req.userId), `${id}.json`);
+  try { fs.unlinkSync(file); } catch (e) { /* already gone — fine, client treats 404 as success */ }
+  res.json({ ok: true });
+});
+
+
 // this route intentionally has no requireAuth. It looks up which user the
 // item belongs to internally via the items store.
 //

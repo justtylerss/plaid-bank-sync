@@ -3,87 +3,192 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Bank Sync — Plaid</title>
+<title>Bank Sync</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500&family=Geist:wght@400;500;600&family=Onest:wght@500;600;700&display=swap">
 <script src="https://cdn.plaid.com/link/v2/stable/link-initialize.js"></script>
 <style>
-  :root { color-scheme: light dark; }
-  body {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    max-width: 860px; margin: 40px auto; padding: 0 20px;
-    background: #fafafa; color: #1a1a1a;
+/* ============ Tokens — shared with Ledger Vault Cloud ============ */
+:root {
+  color-scheme: light;
+  --bg: #f1f1ee; --surface: #ffffff; --surface-2: #f6f6f3; --surface-3: #e9e9e4;
+  --card-border: #e5e5e0; --line: #e6e6e1; --line-2: #d3d3cc;
+  --text: #15171a; --text-2: #4a5056; --muted: #7d8389;
+  --accent: #0b6e4f; --accent-text: #0a6849; --accent-ink: #ffffff; --accent-soft: rgba(11,110,79,.10);
+  --btn: #15171a; --btn-ink: #ffffff;
+  --pos: #0b7a45; --neg: #cf2f3b; --warn: #e07600; --crit: #e23b4a;
+  --c0: #2a78d6; --c1: #eb6834; --c2: #1baf7a; --c3: #eda100;
+  --c4: #e87ba4; --c5: #4a3aa7; --c6: #4a3aa7; --c7: #e34948;
+  --radius: 20px; --radius-sm: 12px;
+  --shadow: 0 24px 60px rgba(16,18,20,.16);
+  --font: "Geist", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --display: "Onest", "Geist", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "Geist Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #08090a; --surface: #141618; --surface-2: #1b1e21; --surface-3: #25292d;
+    --card-border: rgba(255,255,255,.05); --line: rgba(255,255,255,.08); --line-2: rgba(255,255,255,.15);
+    --text: #f4f4f1; --text-2: #b3b8bd; --muted: #7f858b;
+    --accent: #2fbf8f; --accent-text: #45d6a3; --accent-ink: #03140d; --accent-soft: rgba(47,191,143,.14);
+    --btn: #f4f4f1; --btn-ink: #08090a;
+    --pos: #3ccf7f; --neg: #ff6b72; --warn: #fab219; --crit: #e5484d;
+    --c0: #3987e5; --c1: #d95926; --c2: #199e70; --c3: #c98500;
+    --c4: #d55181; --c5: #9085e9; --c6: #9085e9; --c7: #e66767;
+    --shadow: 0 24px 60px rgba(0,0,0,.6);
   }
-  @media (prefers-color-scheme: dark) {
-    body { background: #111; color: #eee; }
-    .card { background: #1b1b1b !important; border-color: #2c2c2c !important; }
-    th { color: #999 !important; border-color: #2c2c2c !important; }
-    td { border-color: #232323 !important; }
-  }
-  h1 { font-size: 22px; margin-bottom: 4px; }
-  .sub { color: #777; margin-bottom: 24px; font-size: 14px; }
-  .card {
-    background: #fff; border: 1px solid #e5e5e5; border-radius: 12px;
-    padding: 18px 20px; margin-bottom: 18px;
-  }
-  .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-  button {
-    font: inherit; font-weight: 600; font-size: 14px; padding: 9px 16px;
-    border-radius: 8px; border: none; cursor: pointer;
-    background: #16a34a; color: #fff;
-  }
-  button.secondary { background: #eee; color: #222; }
-  button:disabled { opacity: .5; cursor: default; }
-  #status { font-size: 13px; color: #777; margin-left: 4px; }
-  table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 6px; }
-  th { text-align: left; padding: 8px 6px; border-bottom: 1px solid #e5e5e5; color: #888; font-weight: 600; }
-  td { padding: 7px 6px; border-bottom: 1px solid #f0f0f0; }
-  td.amt { text-align: right; font-variant-numeric: tabular-nums; }
-  .neg { color: #c0392b; }
-  .pos { color: #1e8449; }
-  .institutions { font-size: 13px; color: #555; margin-top: 8px; }
-  .empty { color: #999; font-size: 13px; padding: 10px 0; }
-  .accountBar {
-    display: flex; align-items: center; justify-content: space-between;
-    font-size: 13px; color: #777; margin-bottom: 18px;
-  }
-  .accountBar button { padding: 5px 12px; font-size: 12.5px; }
+}
+
+/* ============ Base ============ */
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font: 14px/1.5 var(--font); -webkit-font-smoothing: antialiased;
+}
+h1, h2, h3 { margin: 0; font-family: var(--display); font-weight: 600; letter-spacing: -.015em; }
+p { margin: 0; }
+a { color: var(--accent-text); }
+button { font: inherit; color: inherit; }
+.muted { color: var(--muted); }
+.small { font-size: 12.5px; }
+.num { font-variant-numeric: tabular-nums; font-family: var(--mono); }
+.pos { color: var(--pos); }
+.neg { color: var(--neg); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+svg.i { width: 18px; height: 18px; flex: none; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+.brand { display: flex; align-items: center; gap: 10px; font-family: var(--display); font-weight: 650; letter-spacing: -.015em; font-size: 16px; }
+.brand-mark { width: 30px; height: 30px; border-radius: 9px; background: var(--accent); display: grid; place-items: center; flex: none; }
+.brand-mark svg { width: 18px; height: 18px; color: var(--accent-ink); }
+.brand small { display: block; font-family: var(--font); font-weight: 500; font-size: 11px; color: var(--muted); letter-spacing: .02em; margin-top: 1px; }
+
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px; height: 38px; padding: 0 16px;
+  border-radius: 999px; border: 1px solid var(--line); background: var(--surface-2); color: var(--text);
+  font-weight: 600; font-size: 13.5px; cursor: pointer; white-space: nowrap; text-decoration: none;
+  transition: background .12s, border-color .12s, transform .06s;
+}
+.btn:hover { background: var(--surface-3); }
+.btn:active { transform: translateY(1px); }
+.btn:disabled { opacity: .5; cursor: not-allowed; }
+.btn.accent { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.btn.accent:hover { background: color-mix(in srgb, var(--accent) 88%, #000); }
+.btn.ghost { background: transparent; border-color: transparent; color: var(--text-2); }
+.btn.ghost:hover { background: var(--surface-2); color: var(--text); }
+.btn.sm { height: 32px; padding: 0 13px; font-size: 12.5px; }
+
+/* ============ Layout ============ */
+.topbar {
+  position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: 20px;
+  padding: 14px 24px; border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, var(--bg) 86%, transparent); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+}
+.tabs { display: flex; gap: 4px; margin-right: auto; }
+.tabs a { display: flex; align-items: center; padding: 7px 14px; border-radius: 999px; color: var(--text-2); text-decoration: none; font-weight: 550; font-size: 13.5px; }
+.tabs a:hover { background: var(--surface-3); color: var(--text); }
+.tabs a.active { background: var(--surface); color: var(--text); box-shadow: 0 0 0 1px var(--card-border); }
+.account-menu { display: flex; align-items: center; gap: 10px; }
+
+@media (max-width: 640px) {
+  .topbar { flex-wrap: wrap; row-gap: 10px; padding: 12px 16px; }
+  .brand small { display: none; }
+  .tabs { order: 3; width: 100%; margin-right: 0; }
+  .account-menu { margin-left: auto; }
+  #whoami .emailPart { display: none; }
+  .main { padding: 20px 14px 60px; }
+  .hero-amt { font-size: 34px; }
+}
+
+.main { max-width: 880px; margin: 0 auto; padding: 28px 20px 80px; display: grid; gap: 22px; }
+
+.card { background: var(--surface); border: 1px solid var(--card-border); border-radius: var(--radius); padding: 22px 24px; }
+
+/* ============ Hero balance ============ */
+.hero-label { color: var(--muted); font-size: 13px; font-weight: 550; }
+.hero-amt { font-family: var(--display); font-size: 44px; font-weight: 650; letter-spacing: -.02em; margin: 4px 0 2px; }
+.hero-sub { color: var(--text-2); font-size: 13px; margin-bottom: 18px; }
+.hero-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+#status { margin-top: 10px; min-height: 16px; }
+
+/* ============ Accounts ============ */
+.section-h { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 12px; }
+.section-h h2 { font-size: 16px; }
+.accounts-grid { display: grid; gap: 10px; }
+.acct-card { display: flex; align-items: center; gap: 12px; background: var(--surface); border: 1px solid var(--card-border); border-radius: var(--radius-sm); padding: 14px 16px; }
+.avatar { width: 38px; height: 38px; border-radius: 999px; display: grid; place-items: center; flex: none; color: #fff; font-family: var(--display); font-weight: 650; font-size: 14px; }
+.acct-main { min-width: 0; flex: 1; }
+.acct-name { font-weight: 600; }
+.acct-sub { color: var(--muted); }
+.acct-bal { font-weight: 600; font-size: 15px; }
+
+/* ============ Transactions ============ */
+.day-label { font-size: 12px; font-weight: 650; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 18px 0 8px; }
+.day-label:first-child { margin-top: 0; }
+.tx-row { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.tx-row:last-child { border-bottom: none; }
+.tx-main { min-width: 0; flex: 1; }
+.tx-desc { font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tx-amt { font-weight: 600; }
+
+.empty { text-align: center; color: var(--muted); padding: 36px 10px; }
+.empty svg.i { width: 26px; height: 26px; margin-bottom: 10px; opacity: .6; }
+
+.skel { background: linear-gradient(90deg, var(--surface-2) 25%, var(--surface-3) 37%, var(--surface-2) 63%); background-size: 400% 100%; animation: skel 1.4s ease infinite; border-radius: var(--radius-sm); height: 54px; }
+@keyframes skel { 0% { background-position: 100% 50%; } 100% { background-position: 0 50%; } }
 </style>
 </head>
 <body>
 
-<div class="accountBar">
-  <span id="whoami"></span>
-  <button id="logoutBtn" class="secondary">Log out</button>
-</div>
-
-<h1>Bank Sync</h1>
-<div class="sub">Connects live via Plaid, then exports a CSV formatted for Ledger Vault Cloud's importer.</div>
-
-<div class="card">
-  <div class="row">
-    <button id="connectBtn">Connect a bank or card</button>
-    <button id="syncBtn" class="secondary">Sync now</button>
-    <button id="exportBtn" class="secondary">Export CSV</button>
-    <span id="status"></span>
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18M5 21v-9M9.7 21v-9M14.3 21v-9M19 21v-9M2.5 9.5L12 3l9.5 6.5z"/></svg></span>
+    <span>Bank Sync<small>Live via Plaid</small></span>
   </div>
-  <div id="institutions" class="institutions"></div>
-</div>
+  <nav class="tabs">
+    <a class="active" href="/">Bank Sync</a>
+    <a href="/ledger/" target="_blank" rel="noopener">Ledger Vault Cloud</a>
+  </nav>
+  <div class="account-menu">
+    <span id="whoami" class="muted small"></span>
+    <button id="logoutBtn" class="btn ghost sm">Log out</button>
+  </div>
+</header>
 
-<div class="card">
-  <div id="txTableWrap"></div>
-</div>
+<main class="main">
+  <section class="card">
+    <div class="hero-label">Net balance</div>
+    <div class="hero-amt num" id="heroAmt">—</div>
+    <div class="hero-sub" id="heroSub">Connect a bank to see it here.</div>
+    <div class="hero-actions">
+      <button id="connectBtn" class="btn accent">Connect a bank or card</button>
+      <button id="syncBtn" class="btn">Sync now</button>
+      <button id="exportBtn" class="btn ghost">Export CSV</button>
+    </div>
+    <div id="status" class="small muted"></div>
+  </section>
+
+  <section>
+    <div class="section-h"><h2>Accounts</h2></div>
+    <div id="accountsWrap" class="accounts-grid"></div>
+  </section>
+
+  <section>
+    <div class="section-h"><h2>Transactions</h2></div>
+    <div id="txWrap"></div>
+  </section>
+</main>
 
 <script>
 const $ = (s) => document.querySelector(s);
 const statusEl = $('#status');
-
 function setStatus(msg) { statusEl.textContent = msg || ''; }
 
 async function api(path, opts) {
   const res = await fetch(path, opts);
-  if (res.status === 401) {
-    window.location.href = '/login.html';
-    throw new Error('Not signed in.');
-  }
+  if (res.status === 401) { window.location.href = '/login.html'; throw new Error('Not signed in.'); }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(body.error ? JSON.stringify(body.error) : `${res.status} ${res.statusText}`);
@@ -93,50 +198,115 @@ async function api(path, opts) {
 
 async function requireSession() {
   const { user } = await api('/api/auth/me');
-  $('#whoami').textContent = 'Signed in as ' + (user.name ? `${user.name} (${user.email})` : user.email);
+  $('#whoami').innerHTML = user.name
+    ? `${esc(user.name)} <span class="emailPart">(${esc(user.email)})</span>`
+    : esc(user.email);
 }
-
 $('#logoutBtn').addEventListener('click', async () => {
   await fetch('/api/auth/logout', { method: 'POST' });
   window.location.href = '/login.html';
 });
 
-async function loadInstitutions() {
-  const items = await api('/api/items');
-  const el = $('#institutions');
-  el.textContent = items.length
-    ? 'Connected: ' + items.map((i) => i.institution_name).join(', ')
-    : 'No banks connected yet.';
+/* ---------- formatting helpers ---------- */
+function money(n) {
+  const v = Number(n) || 0;
+  return (v < 0 ? '-$' : '$') + Math.abs(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+const PALETTE = ['c0','c1','c2','c3','c4','c5','c6','c7'];
+function colorFor(seed) {
+  let h = 0;
+  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0;
+  return `var(--${PALETTE[h % PALETTE.length]})`;
+}
+function initials(name) {
+  return (name || '?').trim().split(/\s+/).slice(0, 2).map((w) => w[0]).join('').toUpperCase();
+}
+function dayLabel(dateStr) {
+  const d = new Date(dateStr + 'T00:00:00');
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const diffDays = Math.round((today - d) / 86400000);
+  if (diffDays === 0) return 'Today';
+  if (diffDays === 1) return 'Yesterday';
+  return d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: d.getFullYear() !== today.getFullYear() ? 'numeric' : undefined });
 }
 
-function fmtAmt(n) {
-  const v = Number(n);
-  const s = v.toFixed(2);
-  return v < 0 ? `<span class="neg">-$${Math.abs(v).toFixed(2)}</span>` : `<span class="pos">$${s}</span>`;
+const ASSET_TYPES = new Set(['depository', 'investment']);
+const LIABILITY_TYPES = new Set(['credit', 'loan']);
+
+/* ---------- loaders ---------- */
+async function loadAccounts() {
+  const accounts = await api('/api/accounts');
+  const wrap = $('#accountsWrap');
+
+  if (!accounts.length) {
+    wrap.innerHTML = `<div class="card empty"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3 21h18M5 21v-9M9.7 21v-9M14.3 21v-9M19 21v-9M2.5 9.5L12 3l9.5 6.5z"/></svg><div>No banks connected yet</div></div>`;
+    $('#heroAmt').textContent = money(0);
+    $('#heroSub').textContent = 'Connect a bank to see it here.';
+    return;
+  }
+
+  let assets = 0, liabilities = 0;
+  const rows = accounts.map((a) => {
+    const cur = Number(a.balances && a.balances.current);
+    const isLiab = LIABILITY_TYPES.has(a.type);
+    if (Number.isFinite(cur)) { if (ASSET_TYPES.has(a.type)) assets += cur; else if (isLiab) liabilities += cur; }
+    const seed = a.institution_name || a.name || 'acct';
+    return `<div class="acct-card">
+      <div class="avatar" style="background:${colorFor(seed)}">${initials(seed)}</div>
+      <div class="acct-main">
+        <div class="acct-name">${esc(a.name || 'Account')}</div>
+        <div class="acct-sub small">${esc(a.institution_name)}${a.mask ? ` •••• ${esc(a.mask)}` : ''}</div>
+      </div>
+      <div class="acct-bal num ${isLiab ? 'neg' : ''}">${Number.isFinite(cur) ? (isLiab ? '-' : '') + money(Math.abs(cur)) : '—'}</div>
+    </div>`;
+  });
+  wrap.innerHTML = rows.join('');
+
+  const net = assets - liabilities;
+  $('#heroAmt').textContent = money(net);
+  $('#heroAmt').className = 'hero-amt num' + (net < 0 ? ' neg' : '');
+  $('#heroSub').textContent = liabilities > 0
+    ? `${money(assets)} in accounts · ${money(liabilities)} owed`
+    : `Across ${accounts.length} connected account${accounts.length === 1 ? '' : 's'}`;
 }
+
+function esc(s) { return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
 
 async function loadTransactions() {
   const tx = await api('/api/transactions');
-  const wrap = $('#txTableWrap');
+  const wrap = $('#txWrap');
   if (!tx.length) {
-    wrap.innerHTML = '<div class="empty">No transactions yet. Connect a bank, then hit Sync.</div>';
+    wrap.innerHTML = `<div class="card empty"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3 13l3-8h12l3 8v6H3z"/><path d="M3 13h5l1.5 2.5h5L16 13h5"/></svg><div>No transactions yet. Connect a bank, then hit Sync.</div></div>`;
     return;
   }
-  const rows = tx.slice(0, 200).map((t) => `
-    <tr>
-      <td>${t.date}</td>
-      <td>${(t.merchant_name || t.name || '').replace(/</g, '&lt;')}</td>
-      <td class="amt">${fmtAmt(-t.amount)}</td>
-    </tr>`).join('');
-  wrap.innerHTML = `
-    <table>
-      <thead><tr><th>Date</th><th>Description</th><th style="text-align:right">Amount</th></tr></thead>
-      <tbody>${rows}</tbody>
-    </table>`;
+  const groups = new Map();
+  for (const t of tx) { const k = t.date; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(t); }
+  const days = [...groups.keys()].sort((a, b) => (a < b ? 1 : -1));
+
+  let html = '<div class="card">';
+  days.forEach((day, i) => {
+    html += `<div class="day-label">${dayLabel(day)}</div>`;
+    html += groups.get(day).map((t) => {
+      const desc = t.merchant_name || t.name || 'Transaction';
+      const amt = -t.amount; // flip Plaid's sign convention (positive = money out)
+      return `<div class="tx-row">
+        <div class="avatar" style="background:${colorFor(desc)};width:32px;height:32px;font-size:12px">${initials(desc)}</div>
+        <div class="tx-main">
+          <div class="tx-desc">${esc(desc)}</div>
+          ${t.pending ? '<div class="acct-sub small">Pending</div>' : ''}
+        </div>
+        <div class="tx-amt num ${amt < 0 ? 'neg' : 'pos'}">${money(amt)}</div>
+      </div>`;
+    }).join('');
+  });
+  html += '</div>';
+  wrap.innerHTML = html;
 }
 
 async function refreshAll() {
-  await Promise.all([loadInstitutions(), loadTransactions()]);
+  $('#accountsWrap').innerHTML = '<div class="skel"></div>';
+  $('#txWrap').innerHTML = '<div class="skel"></div>';
+  await Promise.all([loadAccounts(), loadTransactions()]);
 }
 
 $('#connectBtn').addEventListener('click', async () => {
@@ -150,10 +320,7 @@ $('#connectBtn').addEventListener('click', async () => {
         await api('/api/exchange_public_token', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            public_token,
-            institution_name: metadata?.institution?.name,
-          }),
+          body: JSON.stringify({ public_token, institution_name: metadata?.institution?.name }),
         });
         setStatus('Connected.');
         await refreshAll();
@@ -179,9 +346,7 @@ $('#syncBtn').addEventListener('click', async () => {
   }
 });
 
-$('#exportBtn').addEventListener('click', () => {
-  window.location.href = '/api/export.csv';
-});
+$('#exportBtn').addEventListener('click', () => { window.location.href = '/api/export.csv'; });
 
 requireSession().then(refreshAll);
 </script>

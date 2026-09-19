@@ -4,69 +4,105 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Bank Sync — Sign in</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500&family=Geist:wght@400;500;600&family=Onest:wght@500;600;700&display=swap">
 <style>
-  :root { color-scheme: light dark; }
-  body {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    background: #fafafa; color: #1a1a1a;
-    display: flex; align-items: center; justify-content: center;
-    min-height: 100vh; margin: 0; padding: 20px;
+:root {
+  color-scheme: light;
+  --bg: #f1f1ee; --surface: #ffffff; --surface-2: #f6f6f3; --surface-3: #e9e9e4;
+  --card-border: #e5e5e0; --line: #e6e6e1; --line-2: #d3d3cc;
+  --text: #15171a; --text-2: #4a5056; --muted: #7d8389;
+  --accent: #0b6e4f; --accent-text: #0a6849; --accent-ink: #ffffff; --accent-soft: rgba(11,110,79,.10);
+  --crit: #e23b4a;
+  --radius: 20px; --radius-sm: 12px;
+  --shadow: 0 24px 60px rgba(16,18,20,.16);
+  --font: "Geist", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --display: "Onest", "Geist", system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --bg: #08090a; --surface: #141618; --surface-2: #1b1e21; --surface-3: #25292d;
+    --card-border: rgba(255,255,255,.05); --line: rgba(255,255,255,.08); --line-2: rgba(255,255,255,.15);
+    --text: #f4f4f1; --text-2: #b3b8bd; --muted: #7f858b;
+    --accent: #2fbf8f; --accent-text: #45d6a3; --accent-ink: #03140d; --accent-soft: rgba(47,191,143,.14);
+    --crit: #e5484d;
+    --shadow: 0 24px 60px rgba(0,0,0,.6);
   }
-  @media (prefers-color-scheme: dark) {
-    body { background: #111; color: #eee; }
-    .card { background: #1b1b1b !important; border-color: #2c2c2c !important; }
-    input { background: #141414 !important; border-color: #333 !important; color: #eee !important; }
-  }
-  .card {
-    background: #fff; border: 1px solid #e5e5e5; border-radius: 14px;
-    padding: 28px; width: 100%; max-width: 360px;
-  }
-  h1 { font-size: 20px; margin: 0 0 4px; }
-  .sub { color: #777; font-size: 13px; margin-bottom: 20px; }
-  label { display: block; font-size: 13px; font-weight: 600; margin: 14px 0 6px; }
-  input {
-    width: 100%; padding: 9px 10px; border-radius: 8px; border: 1px solid #ddd;
-    font: inherit; box-sizing: border-box;
-  }
-  button {
-    width: 100%; margin-top: 20px; font: inherit; font-weight: 600; font-size: 14px;
-    padding: 10px; border-radius: 8px; border: none; cursor: pointer;
-    background: #16a34a; color: #fff;
-  }
-  button:disabled { opacity: .6; cursor: default; }
-  .toggle { text-align: center; margin-top: 16px; font-size: 13px; color: #777; }
-  .toggle a { color: #16a34a; text-decoration: none; font-weight: 600; cursor: pointer; }
-  .error { color: #c0392b; font-size: 13px; margin-top: 12px; display: none; }
+}
+* { box-sizing: border-box; }
+body {
+  font-family: var(--font); background: var(--bg); color: var(--text);
+  display: flex; align-items: center; justify-content: center;
+  min-height: 100vh; margin: 0; padding: 20px; -webkit-font-smoothing: antialiased;
+}
+h1 { font-family: var(--display); font-weight: 650; letter-spacing: -.02em; font-size: 21px; margin: 0 0 4px; }
+p { margin: 0; }
+.brand { display: flex; align-items: center; gap: 10px; margin-bottom: 22px; }
+.brand-mark { width: 34px; height: 34px; border-radius: 10px; background: var(--accent); display: grid; place-items: center; flex: none; }
+.brand-mark svg { width: 20px; height: 20px; color: var(--accent-ink); }
+.brand-word { font-family: var(--display); font-weight: 650; font-size: 16px; letter-spacing: -.015em; }
+
+.card {
+  background: var(--surface); border: 1px solid var(--card-border); border-radius: var(--radius);
+  box-shadow: var(--shadow); padding: 30px; width: 100%; max-width: 360px;
+}
+.sub { color: var(--muted); font-size: 13px; margin-bottom: 22px; }
+label { display: block; font-size: 12.5px; font-weight: 600; color: var(--text-2); margin: 14px 0 6px; }
+input {
+  width: 100%; padding: 10px 12px; border-radius: var(--radius-sm); border: 1px solid var(--line-2);
+  background: var(--surface-2); color: var(--text); font: 14px var(--font); box-sizing: border-box;
+  transition: border-color .12s, background .12s;
+}
+input:focus { outline: none; border-color: var(--accent); background: var(--surface); }
+button {
+  width: 100%; margin-top: 22px; font-family: var(--font); font-weight: 650; font-size: 14px;
+  padding: 11px; border-radius: 999px; border: 1px solid var(--accent); cursor: pointer;
+  background: var(--accent); color: var(--accent-ink); transition: background .12s;
+}
+button:hover { background: color-mix(in srgb, var(--accent) 88%, #000); }
+button:disabled { opacity: .6; cursor: default; }
+.toggle { text-align: center; margin-top: 18px; font-size: 13px; color: var(--muted); }
+.toggle a { color: var(--accent-text); text-decoration: none; font-weight: 600; cursor: pointer; }
+.error { color: var(--crit); font-size: 13px; margin-top: 12px; display: none; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 </style>
 </head>
 <body>
 
-<div class="card">
-  <h1 id="title">Sign in</h1>
-  <div class="sub" id="subtitle">Your bank sync, just for you.</div>
+<div>
+  <div class="brand">
+    <span class="brand-mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18M5 21v-9M9.7 21v-9M14.3 21v-9M19 21v-9M2.5 9.5L12 3l9.5 6.5z"/></svg></span>
+    <span class="brand-word">Bank Sync</span>
+  </div>
 
-  <form id="form">
-    <div id="nameField" hidden>
-      <label for="name">Name (optional)</label>
-      <input id="name" name="name" type="text" autocomplete="name">
+  <div class="card">
+    <h1 id="title">Sign in</h1>
+    <div class="sub" id="subtitle">Your bank sync, just for you.</div>
+
+    <form id="form">
+      <div id="nameField" hidden>
+        <label for="name">Name (optional)</label>
+        <input id="name" name="name" type="text" autocomplete="name">
+      </div>
+      <label for="email">Email</label>
+      <input id="email" name="email" type="email" autocomplete="email" required>
+      <label for="password">Password</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" required>
+      <button id="submitBtn" type="submit">Sign in</button>
+      <div class="error" id="error"></div>
+    </form>
+
+    <div class="toggle">
+      <span id="toggleText">Don't have an account?</span>
+      <a id="toggleLink">Sign up</a>
     </div>
-    <label for="email">Email</label>
-    <input id="email" name="email" type="email" autocomplete="email" required>
-    <label for="password">Password</label>
-    <input id="password" name="password" type="password" autocomplete="current-password" required>
-    <button id="submitBtn" type="submit">Sign in</button>
-    <div class="error" id="error"></div>
-  </form>
-
-  <div class="toggle">
-    <span id="toggleText">Don't have an account?</span>
-    <a id="toggleLink">Sign up</a>
   </div>
 </div>
 
 <script>
-let mode = 'login'; // or 'signup'
-
+let mode = 'login';
 const $ = (s) => document.querySelector(s);
 const title = $('#title'), subtitle = $('#subtitle'), nameField = $('#nameField');
 const submitBtn = $('#submitBtn'), toggleText = $('#toggleText'), toggleLink = $('#toggleLink');
@@ -83,7 +119,7 @@ function applyMode() {
     passwordInput.autocomplete = 'current-password';
   } else {
     title.textContent = 'Create an account';
-    subtitle.textContent = 'Each account keeps its own connected banks and transactions.';
+    subtitle.textContent = 'Each account keeps its own connected banks and ledger.';
     nameField.hidden = false;
     submitBtn.textContent = 'Create account';
     toggleText.textContent = 'Already have an account?';
@@ -92,27 +128,17 @@ function applyMode() {
   }
   errorEl.style.display = 'none';
 }
-
-toggleLink.addEventListener('click', () => {
-  mode = mode === 'login' ? 'signup' : 'login';
-  applyMode();
-});
+toggleLink.addEventListener('click', () => { mode = mode === 'login' ? 'signup' : 'login'; applyMode(); });
 
 $('#form').addEventListener('submit', async (e) => {
   e.preventDefault();
   errorEl.style.display = 'none';
   submitBtn.disabled = true;
   try {
-    const body = {
-      email: $('#email').value.trim(),
-      password: passwordInput.value,
-    };
+    const body = { email: $('#email').value.trim(), password: passwordInput.value };
     if (mode === 'signup') body.name = $('#name').value.trim();
-
     const res = await fetch(mode === 'login' ? '/api/auth/login' : '/api/auth/signup', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Something went wrong.');

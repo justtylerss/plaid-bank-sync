@@ -1,15 +1,39 @@
-# Bank Sync (Plaid → Ledger Vault Cloud)
+# Bank Sync + Ledger Vault Cloud (self-hosted)
 
-A small self-hosted app that connects live to your banks and cards via Plaid,
-then exports transactions as a CSV formatted for Ledger Vault Cloud's
-importer. It cannot push data directly into the Ledger Vault Cloud artifact
-(Claude artifacts can't receive calls from an outside server) — this app is
-the live-sync piece; the CSV import is the bridge.
+A small self-hosted app with two pages sharing one login:
+
+- **Bank Sync** (`/`) — connects live to your banks and cards via Plaid.
+- **Ledger Vault Cloud** (`/ledger/`) — the full budgeting/books app (categories,
+  budgets, business write-offs, net worth, recurring bills — everything from
+  the original), ported to run on this same server instead of a Claude
+  artifact.
+
+They're wired together directly: on the Ledger page's Import screen, **Import
+from connected banks** pulls straight from whatever Bank Sync has synced —
+no CSV file, no manual download/upload step. (CSV/OFX import is still there
+too, for statements from banks you haven't connected via Plaid.)
 
 Each person who uses it creates their own account (email + password). Every
-connected bank and every transaction is tagged with the account that added
-it, so what you connect and what a friend connects never mix — separate
-logins, separate data, on the same deployment.
+connected bank, every transaction, and every ledger doc (categories, budgets,
+transactions, everything) is tagged with the account that created it — what
+you connect and what a friend connects never mix, on either page.
+
+**What didn't come over from the Claude-hosted version:** AI receipt
+scanning, "ask about your money" chat, and photo storage for receipts. Those
+relied on Claude-specific capabilities (`sample`, `assets`) that don't exist
+outside an artifact. Everything else — the entire finance-tracking engine —
+is untouched. Those buttons show up disabled with a note explaining why,
+rather than erroring.
+
+**Design:** Bank Sync and the login page now share Ledger Vault Cloud's
+actual design system (same Geist/Onest type, same color tokens, same pill
+buttons, same dark mode) instead of a generic default — one visual product
+across all three pages, not three different-looking apps bolted together.
+Bank Sync also shows real account balances and masked account numbers
+(pulled from the same data Plaid already sends on every sync — nothing
+extra to request), a net balance figure (assets minus what's owed on credit
+accounts, not just everything added together), and transactions grouped by
+day the way an actual banking app shows them.
 
 ## 1. Get Plaid API keys (free, instant)
 
@@ -46,23 +70,25 @@ username: user_good
 password: pass_good
 ```
 
-Click **Sync now** to pull transactions, then **Export CSV** to download a
-file with `Date, Description, Amount` columns — spending as negative numbers,
-which matches what Ledger Vault Cloud's CSV importer expects (it should
-auto-detect the columns; if not, map them manually and set "Spending shows
-as: Negative numbers").
+Click **Sync now** to pull transactions. Then open **Ledger Vault Cloud**
+(the link in the top bar, or http://localhost:8080/ledger/ directly — same
+login, no separate sign-in) → **Import & inbox** → **Import from connected
+banks**. That pulls the transactions you just synced straight into your
+inbox for categorizing, no file involved. (Export CSV on the Bank Sync page
+still works too, for opening the raw data elsewhere.)
 
 ## 3. Keeping it current
 
-- **Sync now** re-pulls anytime you click it.
+- **Sync now** on the Bank Sync page re-pulls anytime you click it.
 - The `/api/webhook` route lets Plaid notify the server the moment new
   transactions are ready, instead of you remembering to click Sync. Plaid
   needs a public HTTPS URL to call, so this only works once it's deployed
   (step 5) — set that URL as your webhook when you create the Link token, or
   add it under **Team Settings → Webhooks** in the dashboard.
-- Either way, getting the latest data into Ledger Vault Cloud is still a
-  manual "Export CSV → Import" step, since the artifact can't pull from this
-  server on its own.
+- Either way, getting synced transactions *into your books* is one click:
+  **Import from connected banks** on the Ledger page's Import screen. It's
+  not automatic on its own — click it after a sync when you want fresh data
+  in your inbox — but there's no file to move by hand anymore.
 
 ## 4. Moving beyond Sandbox to your real accounts
 
@@ -110,16 +136,21 @@ under **Team Settings → API → Allowed redirect URIs**.
 
 ## 6. Persistent storage (do this before real accounts sign up)
 
-Accounts, password hashes, connected banks, and transactions all live in
-`data/*.json` on disk. Most container hosts — Railway included — wipe local
-disk on every redeploy. That's low-stakes while you're the only Sandbox
-user; it stops being low-stakes the moment a real signup or a real bank
-connection depends on that file surviving.
+Accounts, password hashes, connected banks, Plaid transactions, and every
+Ledger Vault Cloud doc (categories, budgets, business write-offs, net worth
+— your whole ledger) all live in `data/*.json` and `data/ledger/<user>/*.json`
+on disk. Most container hosts — Railway included — wipe local disk on every
+redeploy. That's low-stakes while you're the only Sandbox user; it stops
+being low-stakes the moment a real signup, a real bank connection, or real
+ledger data depends on those files surviving.
 
-On Railway: open your service → **Settings → Volumes → New Volume**, mount
-it at `/app/data`. If your build path differs, set the `DATA_DIR` variable
-(also in `.env.example`) to wherever the volume is mounted — `server.js`
-already reads it. Render has the equivalent under **Disks**.
+On Railway: close any open settings panel so you can see the project
+canvas, then **right-click your service's box** on the canvas (or press
+**Ctrl/Cmd+K** and search "volume") → attach it to your service → set the
+**Mount Path** to `/app/data`. If your build path differs, set the
+`DATA_DIR` variable (also in `.env.example`) to wherever the volume ends up
+mounted — `server.js` already reads it. Render has the equivalent under
+**Disks**.
 
 ## Security notes (read before connecting a real account)
 
@@ -138,6 +169,11 @@ already reads it. Render has the equivalent under **Disks**.
   That token can read your transaction history — treat the file like a
   password. Fine for local Sandbox testing; before pointing this at a real
   account, encrypt it at rest or move to a proper secrets-capable database.
+- Same goes for `data/ledger/<userId>/*.json` — your categories, budgets,
+  business write-offs, and net worth all sit there as plain JSON, one folder
+  per user. Every read/write route checks the session and only ever touches
+  that user's own folder (tested — two accounts can't see each other's
+  data), but the files themselves aren't encrypted on disk.
 - `/api/webhook` doesn't verify Plaid's JWT signature, so in principle
   anyone who finds the URL could POST a fake webhook. It only triggers a
   transaction re-sync (no money movement), but for a hardened setup, verify
