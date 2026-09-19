@@ -1408,6 +1408,28 @@ function attributeToFirm(t, forceType) {
   return true;
 }
 
+// Wider net than PROP_FIRM_PATTERNS. Firms bill under legal entity names,
+// resellers and payment processors that look nothing like the brand, so an
+// exact list will always miss some. These are generic words that show up in
+// trading-related descriptors; matches are *candidates* shown for a human to
+// judge, never auto-attributed, because plenty of innocent merchants contain
+// "trading" or "futures" too.
+const PROP_FIRM_HINTS = [
+  'trader', 'trading', 'funded', 'funding', 'futures', 'prop firm', 'propfirm',
+  'evaluation', 'challenge', 'payout', 'tradovate', 'rithmic', 'ninjatrader',
+];
+function propFirmCandidates() {
+  const out = [];
+  for (const t of sortTx(S.transactions)) {
+    if (t.biz && t.biz.firm) continue;          // already counted somewhere
+    if (detectPropFirmName(t.desc)) continue;   // the exact list already has it
+    const d = norm(t.desc);
+    if (!PROP_FIRM_HINTS.some((h) => d.includes(h))) continue;
+    out.push(t);
+  }
+  return out;
+}
+
 function propFirmReviewHTML() {
   const { clear, unclear } = propFirmUnattributed();
   const first = propFirmCoverage();
@@ -1415,7 +1437,8 @@ function propFirmReviewHTML() {
     ? `Counting transactions back to ${esc(fmtDate(first, { year: true }))}. Anything older than that isn't in your books yet — Plaid only backfills as much history as was requested when each bank was linked.`
     : '';
 
-  if (!clear.length && !unclear.length) {
+  const candidates = propFirmCandidates();
+  if (!clear.length && !unclear.length && !candidates.length) {
     return coverage ? `<div class="card"><p class="note">${icon('info')}<span>${coverage}</span></p></div>` : '';
   }
 
@@ -1437,6 +1460,14 @@ function propFirmReviewHTML() {
     cards.push(UI.card(`${plural(unclear.length, 'transfer')} needing a call`,
       `<p class="text-2" style="margin-bottom:10px">Your bank reported these as transfers, which is how prop firm payouts usually arrive. A transfer doesn't record which way the money went, so say which these were and they'll be counted.</p><div class="list">${unclear.map((p) => row(p, true)).join('')}</div>`,
       { cls: 's12' }));
+  }
+  if (candidates.length) {
+    const shown = candidates.slice(0, 15);
+    const rows = shown.map((t) => `<div class="list-item click" data-act="tx-edit" data-id="${t.id}">
+      <div class="li-main"><div class="li-title">${esc(t.desc)}</div><div class="li-sub">${esc(fmtDate(t.date, { year: true }))} · ${esc(t.type)}</div></div>
+      <span class="amt">${esc(money(t.amount))}</span>
+    </div>`).join('');
+    cards.push(UI.card('Possible prop firm activity', `<p class="text-2" style="margin-bottom:10px">These mention trading words but aren't attributed to a firm, so they're not in the totals. Some will be unrelated — click any that belong to a firm and set the business and firm name on it.</p><div class="list">${rows}</div>${candidates.length > shown.length ? `<p class="muted small" style="margin-top:10px">${candidates.length - shown.length} more not shown.</p>` : ''}`, { cls: 's12' }));
   }
   const note = coverage ? `<p class="note" style="margin-top:12px">${icon('info')}<span>${coverage}</span></p>` : '';
   return `<div class="grid">${cards.join('')}</div>${note}`;
