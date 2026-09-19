@@ -1076,6 +1076,16 @@ const bizCatOf = (id) => byId(S.bizCats, id);
 const catsOfKind = (kind) => S.categories.filter((c) => c.kind === kind);
 const activePMs = () => S.paymentMethods.filter((p) => !p.archived);
 const bizCatsFor = (bizId) => { const b = bizOf(bizId); const kind = b ? b.kind : 'general'; return S.bizCats.filter((c) => c.scope === 'all' || c.scope === kind); };
+const TX_SORTS = [
+  ['date-desc', 'Newest first', (a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : (b.created || 0) - (a.created || 0))],
+  ['date-asc', 'Oldest first', (a, b) => (a.date > b.date ? 1 : a.date < b.date ? -1 : (a.created || 0) - (b.created || 0))],
+  ['amount-desc', 'Largest amount', (a, b) => b.amount - a.amount || (a.date < b.date ? 1 : -1)],
+  ['amount-asc', 'Smallest amount', (a, b) => a.amount - b.amount || (a.date < b.date ? 1 : -1)],
+  ['desc-asc', 'Description A–Z', (a, b) => String(a.desc).localeCompare(String(b.desc)) || (a.date < b.date ? 1 : -1)],
+  ['desc-desc', 'Description Z–A', (a, b) => String(b.desc).localeCompare(String(a.desc)) || (a.date < b.date ? 1 : -1)],
+];
+const txSorter = (key) => (TX_SORTS.find((x) => x[0] === key) || TX_SORTS[0])[2];
+
 const sortTx = (arr) => arr.slice().sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : (b.created || 0) - (a.created || 0)));
 
 /* ---------- Money math ---------- */
@@ -1247,7 +1257,7 @@ const PROP_FIRM_PATTERNS = [
   ['Apex Trader Funding', ['apex trader funding', 'apex trader', 'apextraderfunding']],
   ['Topstep', ['topstep']],
   ['FTMO', ['ftmo']],
-  ['MyFundedFutures', ['myfundedfutures', 'my funded futures']],
+  ['MyFundedFutures', ['myfundedfutures', 'my funded futures', 'my funded future', 'myfundedfuture', 'mff payout', 'mff eval']],
   ['My Funded FX', ['my funded fx', 'myfundedfx']],
   ['Leeloo Trading', ['leeloo']],
   ['Take Profit Trader', ['take profit trader', 'takeprofittrader']],
@@ -1290,6 +1300,161 @@ function propFirmBizFor(desc, type) {
   const bc = S.bizCats.find((c) => c.key === key) || S.bizCats.find((c) => c.scope === 'trading');
   return { b: tradingBiz.id, c: bc ? bc.id : '', pct: 100, firm, receipt: false, rnote: '' };
 }
+
+/* ---------- Needs review ----------
+   Bank-synced transactions land straight in the books now, which is faster but
+   means nothing stops to ask when the data is thin. These are the cases where
+   a row is in your books but its meaning is genuinely unclear, so totals and
+   write-offs built on it would be wrong.
+
+   Every reason here is an objective property of the row, not a guess about
+   your intent — the point is to hand you the ambiguous ones, not to decide
+   for you. Reasons are ordered by how much damage leaving them does. */
+function needsReview() {
+  const out = [];
+  const seen = new Set();
+  const add = (t, why, hint) => { if (seen.has(t.id)) return; seen.add(t.id); out.push({ t, why, hint }); };
+
+  for (const t of sortTx(S.transactions)) {
+    // A transfer carrying a real merchant name usually isn't an internal
+    // move between your own accounts — and a transfer counts toward nothing,
+    // so a misfiled payout or fee vanishes from every total.
+    if (t.type === 'transfer' && detectPropFirmName(t.desc)) {
+      add(t, 'Filed as a transfer, but looks like a prop firm', 'Was this a payout or a fee?');
+      continue;
+    }
+    // A business expense with no write-off category can't be reported on.
+    if (t.biz && t.type === 'expense' && !t.biz.c) {
+      add(t, 'Business expense with no write-off category', 'Pick how your CPA should group it.');
+      continue;
+    }
+    // Trading business rows with no firm are missing from Prop firms.
+    if (t.biz && !t.biz.firm && (S.businesses.find((b) => b.id === t.biz.b) || {}).kind === 'trading') {
+      add(t, 'Trading business, but no firm named', 'Name the firm so it counts in Prop firms.');
+      continue;
+    }
+    if (t.type === 'transfer') continue;
+    // No category at all: counts in the totals but not in any breakdown.
+    if (!t.cat || !catOf(t.cat)) {
+      add(t, 'No category', 'It won’t appear in budgets or spending breakdowns.');
+      continue;
+    }
+    // Landed on the catch-all. Fine for small change, worth a look when the
+    // amount is large enough to move a monthly total.
+    const c = catOf(t.cat);
+    if (c && /^other/i.test(c.name) && t.amount >= 10000) {
+      add(t, `Categorised as ${c.name}`, 'Large enough to be worth placing properly.');
+    }
+  }
+  return out;
+}
+
+function needsReviewHTML(cls) {
+  const items = needsReview();
+  if (!items.length) return '';
+  const shown = items.slice(0, 8);
+  const rows = shown.map(({ t, why, hint }) => `<div class="list-item click" data-act="tx-edit" data-id="${t.id}">
+    <div class="ico-tile" style="--dot:var(--warn)">${icon('alert')}</div>
+    <div class="li-main"><div class="li-title">${esc(t.desc)}</div><div class="li-sub wrap">${esc(fmtDate(t.date, { year: true }))} · ${esc(why)} — ${esc(hint)}</div></div>
+    <div class="li-amt amt">${esc(money(t.amount))}</div>
+  </div>`).join('');
+  const more = items.length > shown.length
+    ? `<p class="muted small" style="margin-top:10px">${items.length - shown.length} more not shown.</p>`
+    : '';
+  return UI.card('Needs review', `<p class="text-2" style="margin-bottom:10px">In your books already, but ambiguous enough that totals built on them could be off. Click one to sort it out.</p><div class="list">${rows}</div>${more}`,
+    { sub: `${items.length} to check`, cls: cls || 's12' });
+}
+
+/* ---------- What the Prop firms section is missing ----------
+   Only transactions carrying a trading business *and* a firm name are counted
+   by propFirmStats, so anything that arrived before auto-detection existed,
+   anything Plaid filed as a transfer, and anything whose description didn't
+   match a known firm is silently absent. This finds those so the gap is
+   visible and fixable rather than just wrong.
+
+   Transfers are listed separately: a transfer row keeps no direction, so
+   whether it was a payout or a fee is genuinely unknown and has to be asked
+   rather than guessed. */
+function propFirmUnattributed() {
+  const clear = [], unclear = [];
+  for (const t of S.transactions) {
+    if (t.biz && t.biz.firm) continue;
+    const firm = detectPropFirmName(t.desc);
+    if (!firm) continue;
+    (t.type === 'transfer' ? unclear : clear).push({ t, firm });
+  }
+  const byDate = (a, b) => (a.t.date < b.t.date ? 1 : -1);
+  return { clear: clear.sort(byDate), unclear: unclear.sort(byDate) };
+}
+
+// Earliest transaction in the books, so a short history window is visible as
+// a date rather than as mysteriously absent purchases.
+function propFirmCoverage() {
+  let first = null;
+  for (const t of S.transactions) if (!first || t.date < first) first = t.date;
+  return first;
+}
+
+function attributeToFirm(t, forceType) {
+  const type = forceType || t.type;
+  if (type !== 'income' && type !== 'expense') return false;
+  const biz = propFirmBizFor(t.desc, type);
+  if (!biz) return false;
+  t.type = type;
+  t.biz = biz;
+  const wantName = type === 'income' ? 'Trading payouts' : 'Prop firm';
+  const c = byName(catsOfKind(type), wantName);
+  if (c) t.cat = c.id;
+  return true;
+}
+
+function propFirmReviewHTML() {
+  const { clear, unclear } = propFirmUnattributed();
+  const first = propFirmCoverage();
+  const coverage = first
+    ? `Counting transactions back to ${esc(fmtDate(first, { year: true }))}. Anything older than that isn't in your books yet — Plaid only backfills as much history as was requested when each bank was linked.`
+    : '';
+
+  if (!clear.length && !unclear.length) {
+    return coverage ? `<div class="card"><p class="note">${icon('info')}<span>${coverage}</span></p></div>` : '';
+  }
+
+  const row = (p, ask) => {
+    const t = p.t;
+    const act = ask
+      ? `<button class="btn sm" data-act="firm-fix" data-id="${t.id}" data-kind="income">Payout</button><button class="btn sm" data-act="firm-fix" data-id="${t.id}" data-kind="expense">Fee</button>`
+      : `<button class="btn sm primary" data-act="firm-fix" data-id="${t.id}">Add to ${esc(p.firm)}</button>`;
+    return `<div class="list-item"><div class="li-main"><div class="li-title">${esc(t.desc)}</div><div class="li-sub">${esc(fmtDate(t.date, { year: true }))} · ${esc(p.firm)}${ask ? ' · filed as a transfer' : ` · ${t.type === 'income' ? 'payout' : 'fee'}`}</div></div><span class="amt ${t.type === 'income' ? 'pos' : ''}">${esc(money(t.amount))}</span>${act}</div>`;
+  };
+
+  const cards = [];
+  if (clear.length) {
+    cards.push(UI.card(`${plural(clear.length, 'transaction')} not counted yet`,
+      `<p class="text-2" style="margin-bottom:10px">These match a prop firm by name but aren't attributed to one, so they're missing from the totals above.</p><div class="list">${clear.map((p) => row(p, false)).join('')}</div>`,
+      { cls: 's12', actions: `<button class="btn sm primary" data-act="firm-fix-all">Add all ${clear.length}</button>` }));
+  }
+  if (unclear.length) {
+    cards.push(UI.card(`${plural(unclear.length, 'transfer')} needing a call`,
+      `<p class="text-2" style="margin-bottom:10px">Your bank reported these as transfers, which is how prop firm payouts usually arrive. A transfer doesn't record which way the money went, so say which these were and they'll be counted.</p><div class="list">${unclear.map((p) => row(p, true)).join('')}</div>`,
+      { cls: 's12' }));
+  }
+  const note = coverage ? `<p class="note" style="margin-top:12px">${icon('info')}<span>${coverage}</span></p>` : '';
+  return `<div class="grid">${cards.join('')}</div>${note}`;
+}
+
+ACT['firm-fix'] = (el) => {
+  const t = byId(S.transactions, el.dataset.id);
+  if (!t) return;
+  const kind = el.dataset.kind || '';
+  commit(() => { attributeToFirm(t, kind || null); }, `${t.desc} counted`);
+};
+ACT['firm-fix-all'] = () => {
+  const { clear } = propFirmUnattributed();
+  if (!clear.length) return;
+  let n = 0;
+  commit(() => { for (const p of clear) if (attributeToFirm(p.t, null)) n++; }, '');
+  toast(`${plural(n, 'transaction')} added to your prop firm totals`);
+};
 
 /* ---------- Sample data (for exploring the app) ---------- */
 function loadSampleData() {
@@ -1554,6 +1719,7 @@ const ui = {
   cashflowMonths: Number(Prefs.get('cashflowMonths', '6')) || 6,
   paceRange: Prefs.get('paceRange', 'month'),
   theme: Prefs.get('theme', 'system'),
+  txSort: Prefs.get('txSort', 'date-desc'),
   txSel: new Set(),
   firmTab: 'overview',
 };
@@ -2192,7 +2358,7 @@ VIEWS.dashboard = {
     const pmItems = [...byPm.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6).map(([id, v]) => { const pm = pmOf(id); return { label: pm ? pm.name : 'Not specified', value: v, color: pm ? colorVar(pm.color) : 'var(--muted)', tip: [tipRow('Spent', money(v)), ...(pm && pm.last4 ? [tipRow('Card', '•••• ' + pm.last4)] : [])] }; });
     const pmCard = UI.card('By payment method', hbars(pmItems), { sub: monthLabel(mk), cls: 's4', actions: '<button class="btn sm ghost" data-act="go" data-view="cards">Cards</button>' });
 
-    return `${banner}${stats}<div class="grid">${cashflow}${hero}${askCardHTML('s8')}${quickImportHTML(aiReady() ? 's4' : 's12')}${pace}${cats}${bills}${recentCard}${pmCard}</div>`;
+    return `${banner}${stats}<div class="grid">${needsReviewHTML('s12')}${cashflow}${hero}${askCardHTML('s8')}${quickImportHTML(aiReady() ? 's4' : 's12')}${pace}${cats}${bills}${recentCard}${pmCard}</div>`;
   },
 };
 function txListItem(x) {
@@ -2210,7 +2376,7 @@ ACT.sample = async () => {
    ========================================================= */
 function txFiltered() {
   const f = ui.tx; const q = norm(f.q);
-  return sortTx(S.transactions.filter((t) => {
+  return S.transactions.filter((t) => {
     if (f.scope === 'month' && !t.date.startsWith(ui.month)) return false;
     if (f.scope === 'year' && !t.date.startsWith(ui.month.slice(0, 4))) return false;
     if (f.type && t.type !== f.type) return false;
@@ -2227,7 +2393,7 @@ function txFiltered() {
       if (!hay.includes(q)) return false;
     }
     return true;
-  }));
+  }).sort(txSorter(ui.txSort));
 }
 function txRow(t) {
   const c = catOf(t.cat);
@@ -2276,12 +2442,14 @@ VIEWS.transactions = {
       ${sel('cat', [['', 'All categories'], ...S.categories.map((c) => [c.id, c.name])])}
       ${sel('pm', [['', 'All payment methods'], ['_none', 'Not specified'], ...S.paymentMethods.map((p) => [p.id, p.name + (p.last4 ? ' ··' + p.last4 : '')])])}
       ${sel('biz', [['', 'Business + personal'], ['business', 'Business only'], ['personal', 'Personal only'], ...S.businesses.map((b) => [b.id, b.name])])}
+      <select class="select" data-change="txsort" aria-label="Sort transactions">${TX_SORTS.map(([v, label]) => `<option value="${v}" ${ui.txSort === v ? 'selected' : ''}>${esc(label)}</option>`).join('')}</select>
       ${f.receipt ? `<span class="chip">Missing receipts<button data-act="tx-norcpt" aria-label="Remove filter">${icon('x')}</button></span>` : ''}
     </div><div id="tx-results">${txResultsHTML()}</div>`;
   },
 };
 const refreshTx = () => { const r = $('#tx-results'); if (r) r.innerHTML = txResultsHTML(); };
 INP['tx-q'] = debounce((el) => { ui.tx.q = el.value; ui.txLimit = 150; refreshTx(); }, 120);
+CHG.txsort = (el) => { ui.txSort = el.value; Prefs.set('txSort', el.value); ui.txLimit = 150; refreshTx(); };
 CHG.txf = (el) => { ui.tx[el.dataset.key] = el.value; ui.txLimit = 150; refreshTx(); };
 ACT['tx-more'] = () => { ui.txLimit += 150; refreshTx(); };
 ACT['tx-clear'] = () => { ui.tx = { q: '', scope: 'all', type: '', cat: '', pm: '', biz: '', receipt: '' }; render(); };
@@ -2581,6 +2749,10 @@ const CHANGELOG = [
   {
     date: 'Sep 19, 2026',
     items: [
+      'Fixed prop firm payouts going missing. Banks report an incoming payout as a transfer, and transfers skipped firm detection entirely — so payouts never reached the Prop firms totals. A recognised firm name now overrides the transfer label. MyFundedFutures also matches more of the ways it appears on a statement.',
+      'Prop firms gained a review panel: any transaction matching a known firm but not counted in the totals is listed with a one-click fix, and transfers (where your bank kept no direction) ask whether they were a payout or a fee. It also shows how far back your transaction history actually goes, so a short Plaid window reads as a date rather than as missing purchases.',
+      'Needs review on the Dashboard collects transactions that are already in your books but ambiguous — no category, a business expense with no write-off category, a trading expense with no firm named, or a large amount left on a catch-all category. Click any of them to sort it out.',
+      'Transactions can be sorted: newest, oldest, largest amount, smallest amount, or by description A–Z / Z–A. The choice sticks per device and survives clearing filters.',
       'New Light blue theme — white cards on a soft blue ground — plus a proper theme picker under Settings & privacy. Follow system, Light, Light blue or Dark; the choice covers Bank Sync and the sign-in screen too, and is remembered per device.',
       'Bank Sync gained a Disconnect all button next to Accounts, for clearing every connected bank at once instead of one at a time. It asks twice, since reconnecting means going through Plaid Link again for each bank.',
       'Bills & subs can now be built from your connected banks — "Find from connected banks" pulls Plaid’s detected recurring streams and fills in amount, frequency, next due date, category and card. Re-running refreshes the figures and keeps any categorisation you set yourself.',
@@ -2745,7 +2917,12 @@ function findDuplicate(date, cents, desc) {
 function itemType(it) { return it.type === 'income' || it.type === 'transfer' ? it.type : it.direction === 'in' ? 'income' : 'expense'; }
 function itemCents(it) { return Number.isFinite(it.amountCents) ? Math.abs(Math.round(it.amountCents)) : Math.abs(Math.round(Number(it.amount) * 100)) || 0; }
 function resolveItem(it) {
-  const type = itemType(it);
+  // Same override as the bank-sync path: a prop firm payout is income, not an
+  // internal transfer, however Plaid categorised it.
+  const rawType = itemType(it);
+  const type = rawType === 'transfer' && detectPropFirmName(it.desc || it.description || '')
+    ? (it.direction === 'out' ? 'expense' : 'income')
+    : rawType;
   let cat = it.cat && catOf(it.cat) ? it.cat : '';
   if (!cat && it.category && type !== 'transfer') { const c = byName(catsOfKind(type), it.category); if (c) cat = c.id; }
   let pm = it.pm && pmOf(it.pm) ? it.pm : '';
@@ -3363,7 +3540,7 @@ function addBankTransactionsDirect(rows, accounts) {
     const batchDup = toAdd.some((x) => x.amount === cents && Math.abs(daysBetween(x.date, r.date)) <= 3 && (x.date === r.date || similarDesc(x.desc, r.desc)));
     if (batchDup || findDuplicate(r.date, cents, r.desc)) { dupes++; continue; }
 
-    const isTransfer = r.type === 'transfer';
+    const isTransfer = r.type === 'transfer' && !detectPropFirmName(r.desc);
     const type = isTransfer ? 'transfer' : (r.direction === 'in' ? 'income' : 'expense');
     const desc = cleanDesc(r.desc);
     let cat = '', biz = null;
@@ -3812,9 +3989,9 @@ VIEWS.propfirms = {
     </div>`;
     const yearTabs = `<div class="pill-tabs"><button class="${fy === 'all' ? 'on' : ''}" data-act="firmyear" data-y="all">All time</button>${years.map((y) => `<button class="${fy === y ? 'on' : ''}" data-act="firmyear" data-y="${y}">${y}</button>`).join('')}</div>`;
     const toolbar = `${sectionTabs}<div class="toolbar">${yearTabs}<span class="spacer"></span><button class="btn sm" data-act="firm-log" data-kind="eval">${icon('plus')}Log evaluation</button><button class="btn sm primary" data-act="firm-log" data-kind="payout">${icon('plus')}Log payout</button></div>`;
-    if (!firms.length) return `${toolbar}<div class="card">${UI.empty('trophy', 'Is prop trading paying off?', 'Log evaluation fees, resets, activation and data fees, plus payouts, with the firm name. You get ROI per firm, and every fee is already tagged as a write-off. Bank-synced transactions from known prop firms are tagged automatically.', '<button class="btn primary sm" data-act="firm-log" data-kind="eval">Log an evaluation</button><button class="btn sm" data-act="firm-log" data-kind="payout">Log a payout</button>')}</div>`;
+    if (!firms.length) return `${toolbar}<div class="card">${UI.empty('trophy', 'Is prop trading paying off?', 'Log evaluation fees, resets, activation and data fees, plus payouts, with the firm name. You get ROI per firm, and every fee is already tagged as a write-off. Bank-synced transactions from known prop firms are tagged automatically.', '<button class="btn primary sm" data-act="firm-log" data-kind="eval">Log an evaluation</button><button class="btn sm" data-act="firm-log" data-kind="payout">Log a payout</button>')}</div>${propFirmReviewHTML()}`;
     const body = ui.firmTab === 'evals' ? propFirmEvalsHTML(firms, fy) : ui.firmTab === 'payouts' ? propFirmPayoutsHTML(firms, fy) : propFirmOverviewHTML(firms, fy);
-    return `${toolbar}${body}`;
+    return `${toolbar}${body}${propFirmReviewHTML()}`;
   },
 };
 ACT.firmyear = (el) => { ui.firmYear = el.dataset.y; render(); };
