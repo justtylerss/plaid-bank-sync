@@ -1972,6 +1972,132 @@ function propFirmBizFor(desc, type) {
   return { b: tradingBiz.id, c: bc ? bc.id : '', pct: 100, firm, receipt: false, rnote: '' };
 }
 
+/* ---------- Merchant categories, no AI ----------
+   Claude reads a statement and understands it. Without Claude a CSV or OFX
+   download still has one thing worth reading: the merchant name. This maps
+   the common ones onto categories so imported rows arrive sorted instead of
+   landing in a pile of "Uncategorized" for you to click through.
+
+   Order matters — the first match wins, so the specific entry goes above the
+   general one. "amazon prime" is a subscription; "amazon" on its own is
+   shopping, and it sits further down the table for exactly that reason.
+
+   Patterns are written without apostrophes on purpose. Matching runs against
+   both the normalised description and a squashed copy with punctuation and
+   spaces removed, so "oreilly" finds "O'REILLY AUTO PARTS #482" and
+   "tjmaxx" finds "T J MAXX". Anything shorter than four characters is matched
+   only as a literal, because a squashed three-letter pattern hits everything. */
+const EXPENSE_MERCHANTS = [
+  ['Subscriptions', ['netflix', 'spotify', 'hulu', 'disney plus', 'disneyplus', 'hbo max', 'paramount plus', 'peacock tv',
+    'youtube premium', 'youtubepremium', 'amazon prime', 'prime video', 'audible', 'apple.com/bill', 'itunes.com',
+    'google storage', 'google one', 'dropbox', 'icloud', 'adobe', 'microsoft 365', 'office 365', 'anthropic', 'claude.ai',
+    'openai', 'chatgpt', 'patreon', 'twitch', 'playstation network', 'xbox', 'nintendo', 'steamgames', 'steampowered',
+    'tradingview', 'discord nitro', 'substack', 'medium monthly', 'linkedin premium', 'grammarly', 'canva']],
+  ['Phone & internet', ['verizon', 'at&t', 'atandt', 't-mobile', 'tmobile', 'comcast', 'xfinity', 'spectrum',
+    'centurylink', 'frontier comm', 'google fi', 'mint mobile', 'starlink', 'cricket wireless', 'boost mobile']],
+  ['Utilities', ['electric', 'power company', 'energy', 'water dept', 'water district', 'water utility', 'gas company',
+    'pg&e', 'con edison', 'duke energy', 'national grid', 'xcel', 'dominion energy', 'sewer', 'waste management',
+    'republic services', 'city utilities', 'utility bill']],
+  ['Groceries', ['walmart', 'kroger', 'safeway', 'aldi', 'trader joe', 'whole foods', 'wholefoods', 'publix', 'costco',
+    'sams club', 'food lion', 'wegmans', 'sprouts', 'meijer', 'winco', 'giant eagle', 'albertsons', 'vons', 'ralphs',
+    'stop & shop', 'shoprite', 'heb ', 'h-e-b', 'grocery', 'supermarket', 'fresh market']],
+  ['Dining out', ['mcdonald', 'starbucks', 'chipotle', 'taco bell', 'tacobell', 'burger king', 'burgerking', 'wendys',
+    'subway', 'chick-fil-a', 'chickfila', 'dunkin', 'dominos', 'pizza hut', 'pizzahut', 'papa john', 'kfc ', 'popeyes',
+    'panera', 'five guys', 'fiveguys', 'shake shack', 'raising cane', 'whataburger', 'in-n-out', 'jersey mike',
+    'doordash', 'uber eats', 'ubereats', 'grubhub', 'postmates', 'seamless', 'restaurant', 'pizzeria', 'sushi',
+    'ihop', 'dennys', 'applebee', 'olive garden', 'buffalo wild', 'texas roadhouse', 'cheesecake factory',
+    'coffee', 'cafe ', 'bakery', 'deli ', 'grill ', 'tavern', 'brewing', 'bar & grill']],
+  ['Transportation', ['uber trip', 'uber  *trip', 'lyft', 'shell oil', 'chevron', 'exxon', 'mobil', 'marathon petro',
+    'speedway', 'wawa', 'sheetz', 'quiktrip', 'circle k', '7-eleven', '7eleven', 'sunoco', 'citgo', 'valero', 'arco',
+    'racetrac', 'pilot travel', 'loves travel', 'parking', 'toll ', 'tollway', 'transit', 'amtrak', 'metro fare',
+    'gas station', 'fuel ']],
+  ['Car & insurance', ['geico', 'progressive ins', 'state farm', 'statefarm', 'allstate', 'usaa', 'liberty mutual',
+    'nationwide ins', 'autozone', 'oreilly', 'advance auto', 'napa auto', 'jiffy lube', 'valvoline', 'discount tire',
+    'firestone', 'midas', 'pep boys', 'les schwab', 'car wash', 'carwash', 'dmv ', 'auto parts']],
+  ['Health & fitness', ['cvs', 'walgreens', 'rite aid', 'riteaid', 'planet fitness', 'la fitness', 'equinox',
+    'golds gym', 'anytime fitness', 'crunch fitness', 'orangetheory', 'lifetime fitness', 'pharmacy', 'dental',
+    'dentist', 'orthodont', 'clinic', 'hospital', 'medical', 'physician', 'urgent care', 'quest diagnostics',
+    'labcorp', 'optometry', 'vision center', 'chiroprac']],
+  ['Travel', ['airbnb', 'vrbo', 'marriott', 'hilton', 'hyatt', 'holiday inn', 'holidayinn', 'booking.com',
+    'expedia', 'hotels.com', 'priceline', 'delta air', 'united airlines', 'american airlines', 'southwest air',
+    'jetblue', 'spirit air', 'alaska air', 'frontier air', 'hertz', 'enterprise rent', 'avis', 'budget rent',
+    'turo', 'tsa pre', 'global entry', 'airport', 'motel', 'hostel', 'resort ']],
+  ['Entertainment', ['amc theat', 'regal cinema', 'cinemark', 'ticketmaster', 'stubhub', 'fandango', 'bowling',
+    'golf club', 'topgolf', 'cinema', 'movie theat', 'concert', 'arcade', 'museum', 'aquarium', 'zoo ']],
+  ['Personal care', ['supercuts', 'great clips', 'greatclips', 'barber', 'salon', 'nail spa', 'sephora', 'ulta ',
+    'massage', 'spa ']],
+  ['Education', ['coursera', 'udemy', 'skillshare', 'chegg', 'university', 'college', 'tuition', 'bookstore',
+    'khan academy', 'pluralsight', 'datacamp']],
+  ['Gifts & giving', ['gofundme', 'donation', 'donate', 'red cross', 'salvation army', 'church', 'charity',
+    'unicef', 'st jude', 'stjude']],
+  ['Fees & interest', ['interest charge', 'interestcharge', 'finance charge', 'late fee', 'overdraft', 'nsf fee',
+    'atm fee', 'service charge', 'annual fee', 'foreign transaction fee', 'wire fee', 'maintenance fee',
+    'returned item fee', 'cash advance fee', 'overlimit']],
+  ['Housing', ['rent payment', 'rental payment', 'mortgage', 'property mgmt', 'property management', 'apartments',
+    'apartment homes', 'hoa ', 'homeowners assoc', 'landlord', 'storage unit', 'public storage']],
+  ['Shopping', ['amazon', 'amzn', 'target', 'best buy', 'bestbuy', 'home depot', 'homedepot', 'lowes', 'ikea',
+    'wayfair', 'etsy', 'ebay', 'shein', 'temu', 'nike', 'adidas', 'macys', 'nordstrom', 'kohls', 'ross stores',
+    'ross dress', 'tj maxx', 'tjmaxx', 'marshalls', 'old navy', 'oldnavy', 'h&m ', 'zara', 'uniqlo', 'dollar general',
+    'dollar tree', 'family dollar', 'five below', 'michaels', 'hobby lobby', 'staples', 'office depot', 'petco',
+    'petsmart', 'ace hardware', 'harbor freight', 'tractor supply', 'dicks sporting', 'academy sports', 'rei ']],
+];
+
+const INCOME_MERCHANTS = [
+  ['Paycheck', ['payroll', 'direct dep', 'dir dep', 'dirdep', 'salary', 'wages', 'adp ', 'gusto', 'paychex',
+    'intuit payroll']],
+  ['Interest & dividends', ['interest earned', 'interest paid', 'interest payment', 'dividend', 'div payment',
+    'capital gain']],
+  ['Refunds', ['refund', 'reversal', 'return credit', 'credit adjustment', 'chargeback', 'rebate', 'cashback',
+    'cash back', 'reimburse']],
+];
+
+/* Matches like detectPropFirmName: literal first, then punctuation-insensitive
+   for anything long enough that a squashed match cannot be an accident. */
+function matchMerchantCat(desc, table) {
+  const d = norm(desc);
+  const sq = squash(desc);
+  if (!d) return '';
+  for (const [name, patterns] of table) {
+    for (const p of patterns) {
+      if (d.includes(p)) return name;
+      if (p.length >= 4) { const ps = squash(p); if (ps.length >= 4 && sq.includes(ps)) return name; }
+    }
+  }
+  return '';
+}
+
+/* Fills a category from the merchant name. Only ever fills a blank — anything
+   already decided, by you or by a rule or by Claude, is left exactly as it is. */
+function localCategorize(it) {
+  if (it.cat) return false;
+  if (it.type !== 'income' && it.type !== 'expense') return false;
+  const name = matchMerchantCat(it.desc, it.type === 'income' ? INCOME_MERCHANTS : EXPENSE_MERCHANTS);
+  if (!name) return false;
+  const c = byName(catsOfKind(it.type), name);
+  if (!c) return false;
+  it.cat = c.id;
+  return true;
+}
+
+/* Prop firm treatment plus a merchant category, which is what the bank path
+   already does for synced rows. Imported rows deserve the same: a prop firm
+   charge is business activity whichever door it came through. */
+function autoSortItem(it) {
+  if (it.type === 'transfer') return false;
+  let changed = false;
+  const pfTmp = { type: it.type, desc: it.desc, biz: it.biz };
+  if (ensurePropFirmBiz(pfTmp)) {
+    it.biz = pfTmp.biz;
+    changed = true;
+    if (!it.cat) {
+      const c = byName(catsOfKind(it.type), it.type === 'income' ? 'Trading payouts' : 'Prop firm');
+      if (c) it.cat = c.id;
+    }
+  }
+  if (localCategorize(it)) changed = true;
+  return changed;
+}
+
 /* ---------- Needs Review ----------
    Bank-synced transactions land straight in the books now, which is faster but
    means nothing stops to ask when the data is thin. These are the cases where
@@ -4471,6 +4597,7 @@ function addToInbox(rows, meta) {
     delete it.amountCents; delete it.category; delete it.business; delete it.writeoff; delete it.description; delete it.direction;
     if (!it.pm && meta.last4) it.pmHint = meta.last4;
     applyRulesTo(it);
+    autoSortItem(it);
     if (it.fitid && S.transactions.some((t) => t.fitid === it.fitid)) { dups++; continue; }
     const key = `${it.date}|${res.cents}|${nameKey(it.desc)}`;
     const nth = (seenThisImport.get(key) || 0) + 1;
