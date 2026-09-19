@@ -290,6 +290,7 @@ const LIABILITY_TYPES = new Set(['credit', 'loan']);
 // A bank linked before the history picker existed, or linked with a short
 // window, can only be widened by disconnecting and connecting it again —
 // Plaid fixes the window when the Item is created.
+const SLOT_NOTE = 'Reconnecting later costs a Plaid connection slot, and on the free plan slots are not returned when you disconnect. Only do this if you are sure.';
 function historyNote(it) {
   const d = Number(it.days_requested);
   if (!d) return ' · <b>90 days</b> of history · reconnect for more';
@@ -377,7 +378,11 @@ ${labels}
 This revokes each connection at Plaid and removes their accounts and transactions from Bank Sync.`)) return;
   // Second gate, because this one cannot be undone from here: reconnecting
   // means going through Plaid Link again for every bank.
-  if (!confirm('Last check — reconnecting means linking every bank again through Plaid. Continue?')) return;
+  if (!confirm(`Last check — reconnecting means linking every bank again through Plaid.
+
+${SLOT_NOTE}
+
+Continue?`)) return;
 
   btn.disabled = true;
   setStatus('Disconnecting…');
@@ -402,7 +407,11 @@ $('#accountsWrap').addEventListener('click', async (e) => {
   const btn = e.target.closest('[data-act="disconnect"]');
   if (!btn) return;
   const { item, label } = btn.dataset;
-  if (!confirm(`Disconnect ${label}? This removes it and its transactions from Bank Sync.`)) return;
+  if (!confirm(`Disconnect ${label}?
+
+This removes it and its transactions from Bank Sync.
+
+${SLOT_NOTE}`)) return;
   btn.disabled = true;
   try {
     await api(`/api/items/${encodeURIComponent(item)}`, { method: 'DELETE' });
@@ -500,6 +509,13 @@ async function openLink(days) {
 // is linked first and the old removed only once it succeeds — backing out
 // halfway should leave the bank connected, not gone.
 async function relinkBank(itemId, label) {
+  // Reconnecting creates a new Item, which spends a slot that disconnecting the
+  // old one will not give back. Worth one deliberate confirmation.
+  if (!confirm(`Reconnect ${label}?
+
+This links the bank again with the history window selected above, then removes the old connection.
+
+${SLOT_NOTE}`)) return;
   const days = historyDaysWanted();
   setStatus(`Reconnecting ${label}…`);
   const newId = await openLink(days);
