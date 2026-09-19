@@ -107,7 +107,7 @@ svg.i { width: 18px; height: 18px; flex: none; stroke: currentColor; fill: none;
 .brand small { display: block; font-family: var(--font); font-weight: 500; font-size: 11px; color: var(--muted); letter-spacing: .04em; text-transform: uppercase; margin-top: 1px; }
 
 /* ============ App shell ============ */
-.app { display: grid; grid-template-columns: 256px minmax(0, 1fr); min-height: 100vh; }
+.app { display: grid; grid-template-columns: 232px minmax(0, 1fr); min-height: 100vh; }
 .sidebar {
   position: sticky; top: env(safe-area-inset-top, 0px); height: 100vh; overflow-y: auto; display: flex; flex-direction: column;
   padding: var(--sp-4) var(--sp-3) var(--sp-3); border-right: 1px solid var(--line); background: var(--bg); z-index: 30;
@@ -134,7 +134,7 @@ svg.i { width: 18px; height: 18px; flex: none; stroke: currentColor; fill: none;
 .side-actions { display: flex; gap: 6px; }
 .side-actions .btn { flex: 1; }
 
-.main { min-width: 0; padding: 0 30px 80px; }
+.main { min-width: 0; padding: 0 var(--sp-5) 80px; }
 .topbar {
   position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20; display: flex; align-items: center; gap: 12px;
   padding: 14px 0; margin-bottom: 22px; border-bottom: 1px solid var(--line);
@@ -273,7 +273,7 @@ textarea.input { height: auto; min-height: 64px; padding: 9px 11px; resize: vert
 .mini-stats .ms-v { font-family: var(--display); font-size: 20px; font-weight: 600; letter-spacing: -.02em; }
 
 /* ============ Tables & lists ============ */
-.table-wrap { overflow-x: auto; margin: 0 -22px; }
+.table-wrap { margin: 0 -22px; }
 .card.flush .table-wrap { margin: 0; }
 .table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 .table th { text-align: left; font-weight: 500; color: var(--muted); font-size: 12px; padding: 10px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
@@ -726,6 +726,37 @@ body.compact .table td { padding-top: 8px; padding-bottom: 8px; }
   .goal-grid.compact { grid-template-columns: 1fr; }
   .unfurl-row { flex-wrap: wrap; }
   .unfurl-row .search { flex: 1 1 100%; }
+}
+
+/* ============ Transactions table fits ============
+   A table that needs sideways scrolling to reach the amount has failed at the
+   one thing it is for. Fixed layout with declared widths means the browser
+   stops sizing columns from their longest cell — a single long merchant name
+   could otherwise push Amount off the screen. Everything that can be long
+   truncates; the two columns you actually scan, description and amount, keep
+   their room. */
+.table { table-layout: fixed; }
+.table-wrap { overflow-x: clip; }
+
+.table th, .table td { overflow: hidden; text-overflow: ellipsis; }
+.table col.c-cb { width: 38px; }
+.table col.c-date { width: 74px; }
+.table col.c-cat { width: 150px; }
+.table col.c-pm { width: 160px; }
+.table col.c-biz { width: 116px; }
+.table col.c-amt { width: 112px; }
+.table col.c-act { width: 76px; }
+/* Description takes what is left, and is the one that should. */
+
+.pm-name { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.table .desc { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.table .sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.table td.num { white-space: nowrap; }
+
+/* Below this the narrow columns are hidden anyway, so let it size itself. */
+@media (max-width: 900px) {
+  .table { table-layout: auto; }
+  .table-wrap { overflow-x: auto; }
 }
 
 /* ============ Motion ============
@@ -2605,7 +2636,13 @@ const UI = {
     return '';
   },
   cat(c) { return c ? `<span class="cat">${this.catIcon(c) ? `<span class="cat-glyph">${this.catIcon(c)}</span>` : `<i class="dot" style="--dot:${colorVar(c.color)}"></i>`}${esc(c.name)}</span>` : '<span class="muted">Uncategorized</span>'; },
-  pm(p) { return p ? `<span class="nowrap">${esc(p.name)}${p.last4 ? ` <span class="mono muted">··${esc(p.last4)}</span>` : ''}</span>` : '<span class="muted">—</span>'; },
+  pm(p) {
+    if (!p) return '<span class="muted">—</span>';
+    // Only add the digits when the name does not already carry them.
+    const shows4 = p.last4 && p.name.replace(/D/g, '').includes(String(p.last4));
+    const tail = p.last4 && !shows4 ? ` <span class="mono muted">··${esc(p.last4)}</span>` : '';
+    return `<span class="pm-name">${esc(p.name)}${tail}</span>`;
+  },
   delta(cur, prev, upGood = true, label = 'vs last month') {
     if (prev == null || prev === 0 || cur == null) return '';
     const d = (cur - prev) / Math.abs(prev);
@@ -3428,7 +3465,7 @@ function txResultsHTML() {
     ? `<button class="btn sm ghost danger" data-act="tx-del-selected">${icon('trash')}Delete ${nSel} selected</button><button class="btn sm ghost" data-act="tx-select-toggle">Select none</button>`
     : `<button class="btn sm ghost" data-act="rescan" title="Re-check every transaction against the latest prop firm list and your rules">${icon('refresh')}Re-scan</button><button class="btn sm ghost" data-act="csv-import">${icon('upload')}Import CSV</button><button class="btn sm ghost" data-act="tx-export">${icon('download')}Export</button>`;
   return `<div class="summary-strip"><span>${esc(scopeLabel)}</span><span><b>${list.length}</b> transactions</span><span>In <b class="amt">${esc(money(inc))}</b></span><span>Out <b class="amt">${esc(money(out))}</b></span><span>Net <b class="amt">${esc(money(inc - out, { sign: true }))}</b></span>${ded ? `<span>Deductible <b class="amt">${esc(money(ded))}</b></span>` : ''}<span class="spacer"></span>${bulkBar}</div>
-  <div class="card flush"><div class="table-wrap"><table class="table"><thead><tr><th class="cb"><input type="checkbox" data-act="tx-select-toggle" ${allShownSelected ? 'checked' : ''} aria-label="Select all shown"></th><th class="hide-sm">Date</th><th>Description</th><th class="hide-sm">Category</th><th class="hide-md">Paid with</th><th class="hide-sm">Business</th><th class="num">Amount</th><th class="hide-sm"><span class="sr-only">Actions</span></th></tr></thead><tbody>${shown.map(txRow).join('')}</tbody></table></div>
+  <div class="card flush"><div class="table-wrap"><table class="table"><colgroup><col class="c-cb"><col class="c-date hide-sm"><col><col class="c-cat hide-sm"><col class="c-pm hide-md"><col class="c-biz hide-sm"><col class="c-amt"><col class="c-act hide-sm"></colgroup><thead><tr><th class="cb"><input type="checkbox" data-act="tx-select-toggle" ${allShownSelected ? 'checked' : ''} aria-label="Select all shown"></th><th class="hide-sm">Date</th><th>Description</th><th class="hide-sm">Category</th><th class="hide-md">Paid with</th><th class="hide-sm">Business</th><th class="num">Amount</th><th class="hide-sm"><span class="sr-only">Actions</span></th></tr></thead><tbody>${shown.map(txRow).join('')}</tbody></table></div>
   ${list.length > shown.length ? `<div class="show-more"><button class="btn sm" data-act="tx-more">Show ${Math.min(150, list.length - shown.length)} more of ${list.length - shown.length}</button></div>` : ''}</div>`;
 }
 VIEWS.transactions = {
@@ -3472,7 +3509,7 @@ VIEWS.transactions = {
       : '';
 
     return `<div class="toolbar">
-      <div class="search">${icon('search')}<input id="tx-q" class="input" type="search" placeholder="Search description, card, firm, amount…  ( / )" value="${esc(f.q)}" data-input="tx-q" aria-label="Search transactions"></div>
+      <div class="search">${icon('search')}<input id="tx-q" class="input" type="search" placeholder="Search" value="${esc(f.q)}" data-input="tx-q" aria-label="Search transactions"></div>
       ${sel('scope', [['month', 'This month'], ['year', 'This year'], ['all', 'All time']])}
       <select class="select" data-change="txsort" aria-label="Sort transactions">${TX_SORTS.map(([v, label]) => `<option value="${v}" ${ui.txSort === v ? 'selected' : ''}>${esc(label)}</option>`).join('')}</select>
       <button class="btn ${ui.txFilters || active.length ? 'primary' : ''}" data-act="txf-toggle" aria-expanded="${ui.txFilters ? 'true' : 'false'}">${icon('sliders')}Filters${active.length ? ` <span class="count">${active.length}</span>` : ''}</button>
