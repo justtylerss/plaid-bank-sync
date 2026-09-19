@@ -5554,7 +5554,12 @@ function acctModal(a = null, kind = 'asset') {
   const typeOpts = (k, sel) => Object.entries(ACCT_TYPES[k]).map(([v, l]) => `<option value="${v}" ${sel === v ? 'selected' : ''}>${l}</option>`).join('');
   openModal({
     title: isNew ? (kind === 'asset' ? 'Add asset' : 'Add debt') : `Update ${x.name}`,
-    body: `<div style="margin-bottom:16px">${`<div class="seg" role="radiogroup" aria-label="Kind"><label><input type="radio" name="kind" value="asset" ${x.kind === 'asset' ? 'checked' : ''}><span>Asset</span></label><label><input type="radio" name="kind" value="liability" ${x.kind === 'liability' ? 'checked' : ''}><span>Debt</span></label></div>`}</div>
+    body: `${isNew
+      ? `<input type="hidden" name="kind" value="${esc(x.kind)}">`
+      : `<div style="margin-bottom:16px"><div class="seg" role="radiogroup" aria-label="Kind">`
+        + `<label><input type="radio" name="kind" value="asset" ${x.kind === 'asset' ? 'checked' : ''}><span>Asset</span></label>`
+        + `<label><input type="radio" name="kind" value="liability" ${x.kind === 'liability' ? 'checked' : ''}><span>Debt</span></label>`
+        + `</div></div>`}
       <div class="form-grid">
         ${UI.field('Current balance', UI.moneyInput('balance', x.balance, { lg: true, required: true }), { cls: 'full' })}
         ${UI.field('Name', `<input class="input" name="name" maxlength="50" value="${esc(x.name)}" placeholder="e.g. Ally savings" required>`)}
