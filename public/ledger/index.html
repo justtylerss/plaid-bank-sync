@@ -4442,7 +4442,27 @@ function applyRulesTo(item) {
 /* Turn extracted rows into inbox items (ids resolved, rules applied, duplicates flagged). */
 function addToInbox(rows, meta) {
   const added = []; let dups = 0, skipped = 0;
-  const existingKeys = new Set(S.inbox.map((i) => `${i.date}|${itemCents(i)}|${nameKey(i.desc)}`));
+
+  /* Counting, not presence. Three identical charges on one day are three
+     charges — the old check saw the second and third as the first arriving
+     again and dropped them before they reached the inbox. Counting how many
+     the inbox already holds, against how many this import contains, means
+     re-importing the same file still adds nothing while genuine repeats all
+     survive. */
+  const keyOf = (i) => `${i.date}|${itemCents(i)}|${nameKey(i.desc)}`;
+  const inboxCounts = new Map();
+  for (const i of S.inbox) { const k = keyOf(i); inboxCounts.set(k, (inboxCounts.get(k) || 0) + 1); }
+  const seenThisImport = new Map();
+
+  // Matching against the books consumes too: one transaction on file can only
+  // account for one incoming row, not every row that resembles it.
+  const claimed = new Set();
+  const matchBooks = (date, cents, desc) => {
+    const t = S.transactions.find((x) => !claimed.has(x.id) && x.amount === cents
+      && Math.abs(daysBetween(x.date, date)) <= 3 && (x.date === date || similarDesc(x.desc, desc)));
+    if (t) claimed.add(t.id);
+    return t;
+  };
   for (const r of rows) {
     const it = { id: 'i' + uid(), source: meta.source, file: meta.file || '', addedAt: new Date().toISOString(), ...r };
     const res = resolveItem(it);
@@ -4453,9 +4473,12 @@ function addToInbox(rows, meta) {
     applyRulesTo(it);
     if (it.fitid && S.transactions.some((t) => t.fitid === it.fitid)) { dups++; continue; }
     const key = `${it.date}|${res.cents}|${nameKey(it.desc)}`;
-    if (existingKeys.has(key)) { dups++; continue; }
-    existingKeys.add(key);
-    const d = findDuplicate(it.date, res.cents, it.desc);
+    const nth = (seenThisImport.get(key) || 0) + 1;
+    seenThisImport.set(key, nth);
+    // Skip only while this import is still re-stating copies the inbox already
+    // holds; anything beyond that count is a genuine additional charge.
+    if (nth <= (inboxCounts.get(key) || 0)) { dups++; continue; }
+    const d = matchBooks(it.date, res.cents, it.desc);
     if (d) { it.dup = d.id; it.skip = true; dups++; }
     added.push(it);
   }
