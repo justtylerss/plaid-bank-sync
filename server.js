@@ -234,6 +234,7 @@ app.post('/api/exchange_public_token', requireAuth, async (req, res) => {
       accessToken: access_token,
       institutionName: institution_name || 'Connected account',
       cursor: null,
+      connectedAt: new Date().toISOString(),
     };
     saveItems(items);
 
@@ -262,6 +263,7 @@ async function syncItem(itemId) {
     const response = await plaidClient.transactionsSync({
       access_token: item.accessToken,
       cursor,
+      options: { personal_finance_category_version: 'v2' },
     });
     const data = response.data;
 
@@ -314,8 +316,46 @@ app.get('/api/items', requireAuth, (req, res) => {
   const list = getItemsForUser(req.userId).map(([item_id, v]) => ({
     item_id,
     institution_name: v.institutionName,
+    connected_at: v.connectedAt || null,
   }));
   res.json(list);
+});
+
+// Disconnect a bank connection: revokes the access_token with Plaid, then
+// removes the item and everything under it (its accounts, and any
+// transactions on those accounts) from local storage.
+app.delete('/api/items/:itemId', requireAuth, async (req, res) => {
+  const { itemId } = req.params;
+  const items = getItems();
+  const item = items[itemId];
+  if (!item || item.userId !== req.userId) return res.status(404).json({ error: 'not_found' });
+
+  try {
+    await plaidClient.itemRemove({ access_token: item.accessToken });
+  } catch (err) {
+    // Log and continue — the person's intent is clear (disconnect it), and
+    // an already-invalid or already-removed token shouldn't block cleanup.
+    console.error('itemRemove error:', err.response?.data || err.message);
+  }
+
+  const accounts = getAccounts();
+  const removedAccountIds = new Set(
+    Object.entries(accounts).filter(([, a]) => a.itemId === itemId).map(([id]) => id)
+  );
+  for (const id of removedAccountIds) delete accounts[id];
+  saveAccounts(accounts);
+
+  const tx = getTransactions();
+  let removedTx = 0;
+  for (const [id, t] of Object.entries(tx)) {
+    if (removedAccountIds.has(t.account_id)) { delete tx[id]; removedTx++; }
+  }
+  saveTransactions(tx);
+
+  delete items[itemId];
+  saveItems(items);
+
+  res.json({ ok: true, removedAccounts: removedAccountIds.size, removedTransactions: removedTx });
 });
 
 // List the signed-in user's accounts (balances, masked numbers), each
@@ -326,6 +366,7 @@ app.get('/api/accounts', requireAuth, (req, res) => {
     .filter(([, a]) => a.userId === req.userId)
     .map(([account_id, a]) => ({
       account_id,
+      item_id: a.itemId,
       name: a.name,
       official_name: a.official_name,
       mask: a.mask,

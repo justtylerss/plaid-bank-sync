@@ -35,6 +35,26 @@ extra to request), a net balance figure (assets minus what's owed on credit
 accounts, not just everything added together), and transactions grouped by
 day the way an actual banking app shows them.
 
+**Auto-categorization:** every sync now requests Plaid's real transaction
+categories (the personal_finance_category taxonomy) and the Ledger import
+maps them onto your own category list — groceries, gas, streaming
+subscriptions, payroll, etc. land pre-categorized instead of defaulting to
+"Other." Credit card payments and account transfers are correctly tagged as
+transfers rather than miscategorized as spending.
+
+**Duplicate handling:** each connected bank shows its connection date, so
+accidentally-duplicated connections (e.g. linking the same bank twice) are
+easy to tell apart, and each has its own **Disconnect** button — it revokes
+the access token with Plaid and removes that connection's accounts and
+transactions. On the Ledger side, a **Find duplicates** button in the inbox
+surfaces anything that looks like a repeat (whether it duplicates another
+inbox item or something you already approved) for one-click cleanup.
+
+**Higher timeframes:** the Dashboard's Cash flow chart now has a 3M / 6M /
+1Y / 2Y range toggle (previously fixed at 6 months), and Spending pace can
+compare Month / Quarter / Year, not just the current month against last
+month. Both choices are remembered across visits.
+
 ## 1. Get Plaid API keys (free, instant)
 
 1. Sign up at https://dashboard.plaid.com/signup

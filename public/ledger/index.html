@@ -126,6 +126,10 @@ svg.i { width: 18px; height: 18px; flex: none; stroke: currentColor; fill: none;
 .month-nav button { background: none; border: 0; padding: 6px 8px; cursor: pointer; color: var(--text-2); display: grid; place-items: center; border-radius: 999px; }
 .month-nav button:hover { color: var(--text); background: var(--surface-2); }
 .month-nav .ml { white-space: nowrap; min-width: 128px; text-align: center; font-weight: 550; font-size: 13.5px; padding: 7px 4px; }
+.seg { display: inline-flex; align-items: center; background: var(--surface-2); border: 1px solid var(--card-border); border-radius: 999px; padding: 2px; gap: 1px; }
+.seg button { background: none; border: 0; padding: 5px 11px; font-size: 12px; font-weight: 600; color: var(--text-2); cursor: pointer; border-radius: 999px; white-space: nowrap; }
+.seg button:hover { color: var(--text); }
+.seg button.active { background: var(--surface); color: var(--text); box-shadow: 0 0 0 1px var(--card-border); }
 .scrim { display: none; }
 
 /* ============ Controls ============ */
@@ -1056,6 +1060,55 @@ function monthTotals(mk) {
   }
   return { income, expense, net: income - expense, rate: income > 0 ? (income - expense) / income : null };
 }
+/* Cash flow / spending pace over any span: totals for a date range, and
+   the current-vs-previous period bounds for a given granularity. */
+function rangeTotals(startDate, endDateExcl) {
+  let income = 0, expense = 0;
+  for (const t of S.transactions) {
+    if (t.date < startDate || t.date >= endDateExcl) continue;
+    if (t.type === 'income') income += t.amount; else if (t.type === 'expense') expense += t.amount;
+  }
+  return { income, expense, net: income - expense, rate: income > 0 ? (income - expense) / income : null };
+}
+function isLeapYear(y) { return (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0; }
+function periodBounds(kind, mk) {
+  if (kind === 'quarter') {
+    const [y, m] = mk.split('-').map(Number);
+    const startKey = `${y}-${pad(Math.floor((m - 1) / 3) * 3 + 1)}`;
+    const days = daysInMonth(startKey) + daysInMonth(addMonths(startKey, 1)) + daysInMonth(addMonths(startKey, 2));
+    const prevStartKey = addMonths(startKey, -3);
+    const prevDays = daysInMonth(prevStartKey) + daysInMonth(addMonths(prevStartKey, 1)) + daysInMonth(addMonths(prevStartKey, 2));
+    const qn = (k) => Math.floor((Number(k.split('-')[1]) - 1) / 3) + 1;
+    return {
+      start: startKey + '-01', days, label: `Q${qn(startKey)} ${startKey.slice(0, 4)}`,
+      prevStart: prevStartKey + '-01', prevDays, prevLabel: `Q${qn(prevStartKey)} ${prevStartKey.slice(0, 4)}`,
+    };
+  }
+  if (kind === 'year') {
+    const y = Number(mk.slice(0, 4));
+    return {
+      start: `${y}-01-01`, days: isLeapYear(y) ? 366 : 365, label: String(y),
+      prevStart: `${y - 1}-01-01`, prevDays: isLeapYear(y - 1) ? 366 : 365, prevLabel: String(y - 1),
+    };
+  }
+  const prevKey = addMonths(mk, -1);
+  return {
+    start: mk + '-01', days: daysInMonth(mk), label: monthShort(mk),
+    prevStart: prevKey + '-01', prevDays: daysInMonth(prevKey), prevLabel: monthShort(prevKey),
+  };
+}
+/* Cumulative daily expense from startDate for `days` days, null past `stopDay` (not happened yet). */
+function cumFrom(startDate, days, stopDay) {
+  const daily = new Array(days).fill(0);
+  const startMs = Date.parse(startDate + 'T00:00:00');
+  for (const t of S.transactions) {
+    if (t.type !== 'expense') continue;
+    const idx = Math.round((Date.parse(t.date + 'T00:00:00') - startMs) / 86400000);
+    if (idx >= 0 && idx < days) daily[idx] += t.amount;
+  }
+  let run = 0;
+  return daily.map((v, i) => { run += v; return i < stopDay ? run : null; });
+}
 function spendByCat(mk) {
   const m = new Map();
   for (const t of S.transactions) if (t.type === 'expense' && t.date.startsWith(mk)) m.set(t.cat, (m.get(t.cat) || 0) + t.amount);
@@ -1415,6 +1468,8 @@ const ui = {
   view: 'dashboard', month: curMonth(), year: curMonth().slice(0, 4),
   tx: { q: '', scope: 'month', type: '', cat: '', pm: '', biz: '', receipt: '' }, txLimit: 150,
   bizTab: 'all', firmYear: 'all', privacy: Prefs.get('privacy', '0') === '1',
+  cashflowMonths: Number(Prefs.get('cashflowMonths', '6')) || 6,
+  paceRange: Prefs.get('paceRange', 'month'),
 };
 const TAB_ID = uid();
 
@@ -1700,6 +1755,8 @@ document.addEventListener('keydown', (e) => {
 ACT['open-nav'] = () => document.body.classList.add('nav-open');
 ACT['close-nav'] = () => document.body.classList.remove('nav-open');
 ACT.privacy = () => togglePrivacy();
+ACT['cf-range'] = (el) => { ui.cashflowMonths = Number(el.dataset.months) || 6; Prefs.set('cashflowMonths', String(ui.cashflowMonths)); render(); };
+ACT['pace-range'] = (el) => { ui.paceRange = el.dataset.range || 'month'; Prefs.set('paceRange', ui.paceRange); render(); };
 ACT.noop = () => {};
 ACT.month = (el) => { const d = Number(el.dataset.d); ui.month = d === 0 ? curMonth() : addMonths(ui.month, d); render(); };
 ACT.go = (el) => go(el.dataset.view);
@@ -1965,15 +2022,17 @@ VIEWS.dashboard = {
       ${UI.stat(`Write-offs ${year} YTD`, amt(ytdDed), { sub: `Set aside ≈ ${amt(setAside)} for taxes` })}
     </div>`;
 
-    // cash flow, 6 months ending at selected month
-    const months = Array.from({ length: 6 }, (_, i) => addMonths(mk, i - 5));
+    // cash flow, N months ending at selected month (range chosen via ui.cashflowMonths)
+    const cfN = ui.cashflowMonths;
+    const months = Array.from({ length: cfN }, (_, i) => addMonths(mk, i - (cfN - 1)));
     const cf = months.map(monthTotals);
+    const cfSeg = `<div class="seg" role="group" aria-label="Cash flow range">${[[3, '3M'], [6, '6M'], [12, '1Y'], [24, '2Y']].map(([n, label]) => `<button type="button" class="${cfN === n ? 'active' : ''}" data-act="cf-range" data-months="${n}">${label}</button>`).join('')}</div>`;
     const cashflow = UI.card('Cash flow', legend([['Income', 'var(--c0)'], ['Spending', 'var(--c1)']]) + chartSlot(columnsChart({
       labels: months.map(monthShort),
       series: [{ name: 'Income', color: 'var(--c0)', values: cf.map((x) => x.income) }, { name: 'Spending', color: 'var(--c1)', values: cf.map((x) => x.expense) }],
       tipTitle: (i) => monthLabel(months[i]),
       extraTip: (i) => [tipRow('Net', money(cf[i].net, { sign: true }))],
-    }), 230), { sub: 'Last 6 months', cls: 's8' });
+    }), 230), { sub: `Last ${plural(cfN, 'month')}`, cls: 's8', actions: cfSeg });
 
     // net worth hero
     const nw = netWorth();
@@ -1985,19 +2044,23 @@ VIEWS.dashboard = {
           <div class="hero-row"><div>Cash & assets<b class="amt">${esc(money(nw.assets, { whole: true }))}</b></div><div>Investments<b class="amt">${esc(money(nw.investments, { whole: true }))}</b></div><div>Debts<b class="amt">${esc(money(nw.liabilities, { whole: true }))}</b></div></div>${goalsMini()}</section>`
       : `<section class="card s4">${UI.empty('landmark', 'Track your net worth', 'Add bank balances, debts and investments to see the full picture.', '<button class="btn sm" data-act="go" data-view="networth">Add accounts</button>')}</section>`;
 
-    // spending pace
-    const dim = daysInMonth(mk), pdim = daysInMonth(pmk);
-    const isCur = mk === curMonth();
-    const todayD = Number(todayStr().slice(8));
-    const cum = (key, n, stop) => { const daily = new Array(n).fill(0); for (const x of S.transactions) if (x.type === 'expense' && x.date.startsWith(key)) daily[Number(x.date.slice(8)) - 1] += x.amount; let run = 0; return daily.map((v, i) => { run += v; return i < stop ? run : null; }); };
-    const len = Math.max(dim, pdim);
-    const curVals = cum(mk, dim, isCur ? todayD : dim); while (curVals.length < len) curVals.push(null);
-    const prevVals = cum(pmk, pdim, pdim); while (prevVals.length < len) prevVals.push(null);
-    const pace = UI.card('Spending pace', legend([[monthLabel(mk, 'short'), 'var(--c0)', true], [monthLabel(pmk, 'short'), 'var(--muted)', true]]) + chartSlot(lineChart({
-      labels: Array.from({ length: len }, (_, i) => String(i + 1)),
-      series: [{ name: monthShort(pmk), color: 'var(--muted)', values: prevVals, dim: true }, { name: monthShort(mk), color: 'var(--c0)', values: curVals, area: true }],
-      tipTitle: (i) => `Day ${i + 1}`,
-    }), 220), { sub: 'Cumulative spending by day vs last month', cls: 's7' });
+    // spending pace — current vs previous period, at month/quarter/year granularity
+    const pb = periodBounds(ui.paceRange, mk);
+    const todayMs = Date.parse(todayStr() + 'T00:00:00');
+    const dayIdxToday = Math.round((todayMs - Date.parse(pb.start + 'T00:00:00')) / 86400000);
+    const isCurPeriod = dayIdxToday >= 0 && dayIdxToday < pb.days;
+    const len = Math.max(pb.days, pb.prevDays);
+    const curVals = cumFrom(pb.start, pb.days, isCurPeriod ? dayIdxToday + 1 : pb.days); while (curVals.length < len) curVals.push(null);
+    const prevVals = cumFrom(pb.prevStart, pb.prevDays, pb.prevDays); while (prevVals.length < len) prevVals.push(null);
+    const paceLabels = ui.paceRange === 'month'
+      ? Array.from({ length: len }, (_, i) => String(i + 1))
+      : Array.from({ length: len }, (_, i) => parseD(addDays(pb.start, i)).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
+    const paceSeg = `<div class="seg" role="group" aria-label="Spending pace range">${[['month', 'Month'], ['quarter', 'Quarter'], ['year', 'Year']].map(([v, label]) => `<button type="button" class="${ui.paceRange === v ? 'active' : ''}" data-act="pace-range" data-range="${v}">${label}</button>`).join('')}</div>`;
+    const pace = UI.card('Spending pace', legend([[pb.label, 'var(--c0)', true], [pb.prevLabel, 'var(--muted)', true]]) + chartSlot(lineChart({
+      labels: paceLabels,
+      series: [{ name: pb.prevLabel, color: 'var(--muted)', values: prevVals, dim: true }, { name: pb.label, color: 'var(--c0)', values: curVals, area: true }],
+      tipTitle: (i) => ui.paceRange === 'month' ? `Day ${i + 1}` : paceLabels[i],
+    }), 220), { sub: `Cumulative spending vs ${ui.paceRange === 'month' ? 'last month' : ui.paceRange === 'quarter' ? 'last quarter' : 'last year'}`, cls: 's7', actions: paceSeg });
 
     // top categories w/ budget markers
     const sp = spendByCat(mk);
@@ -2806,6 +2869,7 @@ function inboxHTML() {
     <header class="card-h" style="padding:18px 22px 10px"><div><h3>Inbox · ${plural(S.inbox.length, 'item')}</h3><p class="card-sub">${on.length} selected · out <span class="amt">${esc(money(out))}</span> · in <span class="amt">${esc(money(inn))}</span>${needCat ? ` · ${needCat} need a category` : ''}</p></div>
       <div class="card-actions">
         ${aiReady() ? `<button class="btn sm" data-act="inbox-ai">${icon('sparkle')}Auto-categorize</button>` : ''}
+        <button class="btn sm ghost" data-act="find-dupes">Find duplicates</button>
         <button class="btn sm ghost" data-act="inbox-toggle">${on.length === S.inbox.length ? 'Select none' : 'Select all'}</button>
         <button class="btn sm ghost danger" data-act="inbox-discard" ${on.length ? '' : 'disabled'}>Discard selected</button>
         <button class="btn sm accent" data-act="inbox-approve" ${on.length ? '' : 'disabled'}>${icon('check')}Approve ${on.length}</button>
@@ -2851,6 +2915,145 @@ VIEWS.import = {
     ${inboxHTML()}`;
   },
 };
+// Maps Plaid's personal_finance_category.detailed (the PFCv2 taxonomy —
+// see https://plaid.com/documents/pfc-taxonomy-all.csv) onto this app's own
+// category names, so bank-synced transactions land pre-categorized instead
+// of defaulting to "Other". TRANSFER covers things that aren't really
+// spending/income at all (moving money between your own accounts, paying
+// off your own credit card, taking out a loan) — resolveItem() already
+// treats type:'transfer' as uncategorized-by-design.
+const TRANSFER = Symbol('transfer');
+const PFC_MAP = {
+  INCOME_CONTRACTOR: 'Commissions', INCOME_GIG_ECONOMY: 'Commissions',
+  INCOME_DIVIDENDS: 'Interest & dividends', INCOME_INTEREST_EARNED: 'Interest & dividends',
+  INCOME_SALARY: 'Paycheck', INCOME_TAX_REFUND: 'Refunds',
+  INCOME_CHILD_SUPPORT: 'Other income', INCOME_LONG_TERM_DISABILITY: 'Other income',
+  INCOME_MILITARY: 'Other income', INCOME_RENTAL: 'Other income',
+  INCOME_RETIREMENT_PENSION: 'Other income', INCOME_UNEMPLOYMENT: 'Other income',
+  INCOME_OTHER: 'Other income',
+
+  LOAN_PAYMENTS_CAR_PAYMENT: 'Car & insurance',
+  LOAN_PAYMENTS_MORTGAGE_PAYMENT: 'Housing',
+  LOAN_PAYMENTS_STUDENT_LOAN_PAYMENT: 'Education',
+  LOAN_PAYMENTS_CASH_ADVANCES: 'Fees & interest', LOAN_PAYMENTS_PERSONAL_LOAN_PAYMENT: 'Fees & interest',
+  LOAN_PAYMENTS_BNPL: 'Other', LOAN_PAYMENTS_EWA: 'Other', LOAN_PAYMENTS_OTHER_PAYMENT: 'Other',
+
+  BANK_FEES_ATM_FEES: 'Fees & interest', BANK_FEES_INSUFFICIENT_FUNDS: 'Fees & interest',
+  BANK_FEES_INTEREST_CHARGE: 'Fees & interest', BANK_FEES_FOREIGN_TRANSACTION_FEES: 'Fees & interest',
+  BANK_FEES_OVERDRAFT_FEES: 'Fees & interest', BANK_FEES_LATE_FEES: 'Fees & interest',
+  BANK_FEES_CASH_ADVANCE: 'Fees & interest', BANK_FEES_OTHER_BANK_FEES: 'Fees & interest',
+
+  ENTERTAINMENT_CASINOS_AND_GAMBLING: 'Entertainment',
+  ENTERTAINMENT_SPORTING_EVENTS_AMUSEMENT_PARKS_AND_MUSEUMS: 'Entertainment',
+  ENTERTAINMENT_VIDEO_GAMES: 'Entertainment', ENTERTAINMENT_OTHER_ENTERTAINMENT: 'Entertainment',
+  ENTERTAINMENT_MUSIC_AND_AUDIO: 'Subscriptions', ENTERTAINMENT_TV_AND_MOVIES: 'Subscriptions',
+
+  FOOD_AND_DRINK_GROCERIES: 'Groceries',
+  FOOD_AND_DRINK_BEER_WINE_AND_LIQUOR: 'Dining out', FOOD_AND_DRINK_COFFEE: 'Dining out',
+  FOOD_AND_DRINK_FAST_FOOD: 'Dining out', FOOD_AND_DRINK_RESTAURANT: 'Dining out',
+  FOOD_AND_DRINK_VENDING_MACHINES: 'Dining out', FOOD_AND_DRINK_OTHER_FOOD_AND_DRINK: 'Dining out',
+
+  GENERAL_MERCHANDISE_BOOKSTORES_AND_NEWSSTANDS: 'Shopping', GENERAL_MERCHANDISE_CLOTHING_AND_ACCESSORIES: 'Shopping',
+  GENERAL_MERCHANDISE_CONVENIENCE_STORES: 'Shopping', GENERAL_MERCHANDISE_DEPARTMENT_STORES: 'Shopping',
+  GENERAL_MERCHANDISE_DISCOUNT_STORES: 'Shopping', GENERAL_MERCHANDISE_ELECTRONICS: 'Shopping',
+  GENERAL_MERCHANDISE_GIFTS_AND_NOVELTIES: 'Shopping', GENERAL_MERCHANDISE_OFFICE_SUPPLIES: 'Shopping',
+  GENERAL_MERCHANDISE_ONLINE_MARKETPLACES: 'Shopping', GENERAL_MERCHANDISE_PET_SUPPLIES: 'Shopping',
+  GENERAL_MERCHANDISE_SPORTING_GOODS: 'Shopping', GENERAL_MERCHANDISE_SUPERSTORES: 'Shopping',
+  GENERAL_MERCHANDISE_TOBACCO_AND_VAPE: 'Shopping', GENERAL_MERCHANDISE_OTHER_GENERAL_MERCHANDISE: 'Shopping',
+
+  HOME_IMPROVEMENT_FURNITURE: 'Housing', HOME_IMPROVEMENT_HARDWARE: 'Housing',
+  HOME_IMPROVEMENT_REPAIR_AND_MAINTENANCE: 'Housing', HOME_IMPROVEMENT_SECURITY: 'Housing',
+  HOME_IMPROVEMENT_OTHER_HOME_IMPROVEMENT: 'Housing',
+
+  MEDICAL_DENTAL_CARE: 'Health & fitness', MEDICAL_EYE_CARE: 'Health & fitness',
+  MEDICAL_NURSING_CARE: 'Health & fitness', MEDICAL_PHARMACIES_AND_SUPPLEMENTS: 'Health & fitness',
+  MEDICAL_PRIMARY_CARE: 'Health & fitness', MEDICAL_VETERINARY_SERVICES: 'Health & fitness',
+  MEDICAL_OTHER_MEDICAL: 'Health & fitness', PERSONAL_CARE_GYMS_AND_FITNESS_CENTERS: 'Health & fitness',
+
+  PERSONAL_CARE_HAIR_AND_BEAUTY: 'Personal care', PERSONAL_CARE_LAUNDRY_AND_DRY_CLEANING: 'Personal care',
+  PERSONAL_CARE_OTHER_PERSONAL_CARE: 'Personal care',
+
+  GENERAL_SERVICES_AUTOMOTIVE: 'Car & insurance', GENERAL_SERVICES_INSURANCE: 'Car & insurance',
+  GENERAL_SERVICES_EDUCATION: 'Education',
+  GENERAL_SERVICES_ACCOUNTING_AND_FINANCIAL_PLANNING: 'Other', GENERAL_SERVICES_CHILDCARE: 'Other',
+  GENERAL_SERVICES_CONSULTING_AND_LEGAL: 'Other', GENERAL_SERVICES_POSTAGE_AND_SHIPPING: 'Other',
+  GENERAL_SERVICES_STORAGE: 'Other', GENERAL_SERVICES_OTHER_GENERAL_SERVICES: 'Other',
+
+  GOVERNMENT_AND_NON_PROFIT_DONATIONS: 'Gifts & giving',
+  GOVERNMENT_AND_NON_PROFIT_GOVERNMENT_DEPARTMENTS_AND_AGENCIES: 'Other',
+  GOVERNMENT_AND_NON_PROFIT_TAX_PAYMENT: 'Other', GOVERNMENT_AND_NON_PROFIT_OTHER_GOVERNMENT_AND_NON_PROFIT: 'Other',
+
+  TRANSPORTATION_BIKES_AND_SCOOTERS: 'Transportation', TRANSPORTATION_GAS: 'Transportation',
+  TRANSPORTATION_PARKING: 'Transportation', TRANSPORTATION_PUBLIC_TRANSIT: 'Transportation',
+  TRANSPORTATION_TAXIS_AND_RIDE_SHARES: 'Transportation', TRANSPORTATION_TOLLS: 'Transportation',
+  TRANSPORTATION_OTHER_TRANSPORTATION: 'Transportation',
+
+  TRAVEL_FLIGHTS: 'Travel', TRAVEL_LODGING: 'Travel', TRAVEL_RENTAL_CARS: 'Travel', TRAVEL_OTHER_TRAVEL: 'Travel',
+
+  RENT_AND_UTILITIES_RENT: 'Housing',
+  RENT_AND_UTILITIES_GAS_AND_ELECTRICITY: 'Utilities', RENT_AND_UTILITIES_SEWAGE_AND_WASTE_MANAGEMENT: 'Utilities',
+  RENT_AND_UTILITIES_WATER: 'Utilities', RENT_AND_UTILITIES_OTHER_UTILITIES: 'Utilities',
+  RENT_AND_UTILITIES_INTERNET_AND_CABLE: 'Phone & internet', RENT_AND_UTILITIES_TELEPHONE: 'Phone & internet',
+
+  LOAN_PAYMENTS_CREDIT_CARD_PAYMENT: TRANSFER,
+};
+const PFC_TRANSFER_PREFIXES = ['TRANSFER_IN_', 'TRANSFER_OUT_', 'LOAN_DISBURSEMENTS_'];
+function categorizeFromPFC(pfc) {
+  const detailed = pfc && pfc.detailed;
+  if (!detailed) return {};
+  if (PFC_MAP[detailed] === TRANSFER || PFC_TRANSFER_PREFIXES.some((p) => detailed.startsWith(p))) return { type: 'transfer' };
+  const cat = PFC_MAP[detailed];
+  return cat ? { category: cat } : {};
+}
+
+ACT['find-dupes'] = () => {
+  // Reuse Ledger's own duplicate detection rather than re-implementing it:
+  // addToInbox() already runs every imported item through findDuplicate()
+  // (fuzzy date + description match against approved transactions) and
+  // marks matches with it.dup/it.skip. This gathers those into one place
+  // for a quick bulk review, plus a defensive exact-match sweep across the
+  // inbox itself in case anything entered outside the normal import path.
+  const flagged = new Map(); // inbox item id -> approved tx it matches
+  for (const it of S.inbox) {
+    if (it.dup) { const t = byId(S.transactions, it.dup); if (t) flagged.set(it.id, t); }
+  }
+  const exactGroups = new Map();
+  for (const it of S.inbox) {
+    const r = resolveItem(it);
+    const key = `${r.date}|${r.cents}|${nameKey(r.desc)}`;
+    if (!exactGroups.has(key)) exactGroups.set(key, []);
+    exactGroups.get(key).push(it);
+  }
+  for (const group of exactGroups.values()) {
+    if (group.length < 2) continue;
+    for (const it of group.slice(1)) if (!flagged.has(it.id)) flagged.set(it.id, null); // null = duplicates another inbox item, not an approved tx
+  }
+
+  if (!flagged.size) { toast('No duplicates found.'); return; }
+
+  const rows = [...flagged.entries()].map(([id, approvedTx]) => {
+    const it = S.inbox.find((x) => x.id === id);
+    const r = resolveItem(it);
+    const amt = r.type === 'expense' ? -r.cents / 100 : r.cents / 100;
+    const why = approvedTx ? `Matches approved: ${esc(approvedTx.desc)}` : 'Duplicate of another inbox item';
+    return `<tr><td><input type="checkbox" name="d_${id}" checked></td><td class="nowrap">${fmtDate(r.date, { year: true })}</td><td>${esc(r.desc)}</td><td class="num ${amt > 0 ? 'pos' : ''}">${esc(money(amt))}</td><td class="muted small">${why}</td></tr>`;
+  }).join('');
+
+  const body = `<p class="text-2 small" style="margin-bottom:14px">${plural(flagged.size, 'inbox item')} look like duplicates. All are checked by default — uncheck anything you want to keep.</p>
+    <div class="table-wrap"><table class="table"><thead><tr><th></th><th>Date</th><th>Description</th><th class="num">Amount</th><th>Why</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+
+  openModal({
+    title: 'Duplicate transactions', size: 'wide', submitText: `Discard selected`,
+    body,
+    onSubmit(fd) {
+      const toRemove = [...flagged.keys()].filter((id) => fd.get(`d_${id}`));
+      if (!toRemove.length) { toast('Nothing selected.', 'err'); return false; }
+      const idSet = new Set(toRemove);
+      commit(() => { S.inbox = S.inbox.filter((it) => !idSet.has(it.id)); }, `Discarded ${plural(toRemove.length, 'duplicate')}`);
+    },
+  });
+};
+
 ACT['imp-banksync'] = async () => {
   const job = newJob('Checking connected banks', 'banksync');
   try {
@@ -2866,6 +3069,7 @@ ACT['imp-banksync'] = async () => {
         amount: Math.abs(t.amount),
         direction: t.amount > 0 ? 'out' : 'in', // Plaid: positive = money out
         fitid: 'plaid-' + t.transaction_id,
+        ...categorizeFromPFC(t.personal_finance_category),
       }));
     if (!rows.length) {
       jobUpdate(job, { status: 'done', ended: Date.now(), msg: 'No connected-bank transactions found yet' });

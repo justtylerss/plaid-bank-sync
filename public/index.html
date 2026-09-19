@@ -124,6 +124,12 @@ svg.i { width: 18px; height: 18px; flex: none; stroke: currentColor; fill: none;
 .acct-sub { color: var(--muted); }
 .acct-bal { font-weight: 600; font-size: 15px; }
 
+.conn-card { background: var(--surface); border: 1px solid var(--card-border); border-radius: var(--radius-sm); padding: 14px 16px; }
+.conn-head { display: flex; align-items: center; gap: 12px; }
+.conn-accounts { margin: 12px 0 2px; padding-top: 12px; border-top: 1px solid var(--line); display: grid; gap: 8px; }
+.conn-acct-row { display: flex; align-items: center; justify-content: space-between; font-size: 13.5px; }
+.conn-acct-row .acct-sub { display: inline; }
+
 /* ============ Transactions ============ */
 .day-label { font-size: 12px; font-weight: 650; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 18px 0 8px; }
 .day-label:first-child { margin-top: 0; }
@@ -234,8 +240,13 @@ const ASSET_TYPES = new Set(['depository', 'investment']);
 const LIABILITY_TYPES = new Set(['credit', 'loan']);
 
 /* ---------- loaders ---------- */
+function fmtConnDate(iso) {
+  if (!iso) return '';
+  return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
 async function loadAccounts() {
-  const accounts = await api('/api/accounts');
+  const [accounts, items] = await Promise.all([api('/api/accounts'), api('/api/items')]);
   const wrap = $('#accountsWrap');
 
   if (!accounts.length) {
@@ -246,21 +257,36 @@ async function loadAccounts() {
   }
 
   let assets = 0, liabilities = 0;
-  const rows = accounts.map((a) => {
+  const byItem = new Map();
+  for (const a of accounts) {
     const cur = Number(a.balances && a.balances.current);
     const isLiab = LIABILITY_TYPES.has(a.type);
     if (Number.isFinite(cur)) { if (ASSET_TYPES.has(a.type)) assets += cur; else if (isLiab) liabilities += cur; }
-    const seed = a.institution_name || a.name || 'acct';
-    return `<div class="acct-card">
-      <div class="avatar" style="background:${colorFor(seed)}">${initials(seed)}</div>
-      <div class="acct-main">
-        <div class="acct-name">${esc(a.name || 'Account')}</div>
-        <div class="acct-sub small">${esc(a.institution_name)}${a.mask ? ` •••• ${esc(a.mask)}` : ''}</div>
+    if (!byItem.has(a.item_id)) byItem.set(a.item_id, []);
+    byItem.get(a.item_id).push({ ...a, cur, isLiab });
+  }
+
+  const cards = items.map((it) => {
+    const accts = byItem.get(it.item_id) || [];
+    const seed = it.institution_name || 'acct';
+    const rows = accts.map((a) => `
+      <div class="conn-acct-row">
+        <span class="acct-sub">${esc(a.name || 'Account')}${a.mask ? ` •••• ${esc(a.mask)}` : ''}</span>
+        <span class="num ${a.isLiab ? 'neg' : ''}">${Number.isFinite(a.cur) ? (a.isLiab ? '-' : '') + money(Math.abs(a.cur)) : '—'}</span>
+      </div>`).join('');
+    return `<div class="conn-card">
+      <div class="conn-head">
+        <div class="avatar" style="background:${colorFor(seed)}">${initials(seed)}</div>
+        <div class="acct-main">
+          <div class="acct-name">${esc(it.institution_name)}</div>
+          <div class="acct-sub small">${it.connected_at ? `Connected ${fmtConnDate(it.connected_at)}` : ''}</div>
+        </div>
+        <button class="btn ghost sm" data-act="disconnect" data-item="${esc(it.item_id)}" data-label="${esc(it.institution_name)}">Disconnect</button>
       </div>
-      <div class="acct-bal num ${isLiab ? 'neg' : ''}">${Number.isFinite(cur) ? (isLiab ? '-' : '') + money(Math.abs(cur)) : '—'}</div>
+      ${rows ? `<div class="conn-accounts">${rows}</div>` : ''}
     </div>`;
   });
-  wrap.innerHTML = rows.join('');
+  wrap.innerHTML = cards.join('');
 
   const net = assets - liabilities;
   $('#heroAmt').textContent = money(net);
@@ -269,6 +295,23 @@ async function loadAccounts() {
     ? `${money(assets)} in accounts · ${money(liabilities)} owed`
     : `Across ${accounts.length} connected account${accounts.length === 1 ? '' : 's'}`;
 }
+
+$('#accountsWrap').addEventListener('click', async (e) => {
+  const btn = e.target.closest('[data-act="disconnect"]');
+  if (!btn) return;
+  const { item, label } = btn.dataset;
+  if (!confirm(`Disconnect ${label}? This removes it and its transactions from Bank Sync.`)) return;
+  btn.disabled = true;
+  try {
+    await api(`/api/items/${encodeURIComponent(item)}`, { method: 'DELETE' });
+    setStatus(`${label} disconnected.`);
+    await refreshAll();
+  } catch (err) {
+    console.error(err);
+    setStatus('Could not disconnect — check the server console.');
+    btn.disabled = false;
+  }
+});
 
 function esc(s) { return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
 
