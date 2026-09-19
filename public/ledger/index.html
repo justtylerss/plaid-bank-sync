@@ -6135,10 +6135,12 @@ VIEWS.settings = {
     const sel = (change, val, opts) => `<select class="select" data-change="${change}">${opts.map(([v, l]) => `<option value="${esc(v)}" ${String(val) === String(v) ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>`;
     const privacy = UI.card('Privacy', `
       <div class="facts" style="margin-bottom:6px">
-        <div>${icon('check')}<span>Stored in your Claude account in a <b>private space only you can read</b>. If you share this page, other people get their own empty tracker, never your data.</span></div>
+        <div>${icon('check')}<span>Your books are <b>yours alone</b>. Every screen checks who you are and shows only your own records — no one else using this app can see them.</span></div>
         <div>${icon('check')}<span>Cards and accounts: nickname and <b>last 4 digits only</b>. Longer numbers found in imports are masked automatically.</span></div>
-        <div>${icon('check')}<span>Screenshots and statements are read by Claude on your account. Nothing lands in your books until you approve it in the inbox.</span></div>
+        <div>${icon('check')}<span>Bank access is <b>read-only</b>. Your bank login goes to your bank through Plaid and never reaches this app, which cannot move money.</span></div>
+        <div>${icon('check')}<span>Nothing lands in your books until you approve it in the inbox.</span></div>
       </div>
+      <div class="set-row"><div><div class="sr-t">Privacy policy</div><div class="sr-d">What is collected, where it is stored, how long it is kept and how to delete it.</div></div><a class="btn sm" href="/privacy" target="_blank" rel="noopener">${icon('lock')}Read</a></div>
       <div class="set-row"><div><div class="sr-t">Auto-hide amounts</div><div class="sr-d">Blur every number after you've been away.</div></div>${sel('set-idle', st.idleHideMin || 0, [[0, 'Off'], [2, 'After 2 min'], [5, 'After 5 min'], [10, 'After 10 min'], [30, 'After 30 min']])}</div>
       <div class="set-row"><div><div class="sr-t">Hide amounts now</div><div class="sr-d">For screen sharing. Shortcut: H</div></div><label class="switch"><input type="checkbox" id="set-privacy" data-change="set-privacy" ${ui.privacy ? 'checked' : ''} aria-label="Hide amounts"></label></div>`);
     const data = UI.card('Data', `
@@ -6148,7 +6150,7 @@ VIEWS.settings = {
       <div class="set-row"><div><div class="sr-t">Backup file</div><div class="sr-d">Everything as one JSON file. ${st.lastBackupAt ? `Last: ${esc(fmtDate(st.lastBackupAt.slice(0, 10), { year: true }))}` : 'Never downloaded.'}</div></div><button class="btn sm" data-act="backup-download">${icon('download')}Download</button></div>
       <div class="set-row"><div><div class="sr-t">Restore, or move over from v1</div><div class="sr-d">A Cloud backup (.json) or a Ledger Vault v1 backup (.lvault, needs its password).</div></div><button class="btn sm" data-act="backup-restore">${icon('upload')}Restore</button></div>
       <div class="set-row"><div><div class="sr-t">Export all transactions</div><div class="sr-d">CSV for spreadsheets.</div></div><button class="btn sm" data-act="export-all">${icon('download')}Export</button></div>
-      <div class="set-row"><div><div class="sr-t">Start fresh</div><div class="sr-d">Delete all records in your private space.</div></div><button class="btn sm danger" data-act="reset-data">Reset data</button></div>`);
+      <div class="set-row"><div><div class="sr-t">Start fresh</div><div class="sr-d">Delete every record in your books. This cannot be undone.</div></div><button class="btn sm danger" data-act="reset-data">Reset data</button></div>`);
     const appearance = UI.card('Preferences', `
       <div class="set-row"><div><div class="sr-t">Currency</div></div>${sel('set-currency', st.currency, [['USD', 'USD $'], ['CAD', 'CAD $'], ['EUR', 'EUR €'], ['GBP', 'GBP £'], ['AUD', 'AUD $'], ['MXN', 'MXN $'], ['INR', 'INR ₹'], ['PKR', 'PKR ₨']])}</div>
       <div class="set-row"><div><div class="sr-t">Tax set-aside rate</div><div class="sr-d">Used for the "set aside" estimates. Not a tax calculation.</div></div><div class="input-wrap" style="width:96px;flex:none"><input class="input" id="set-taxpct" data-change="set-taxpct" inputmode="decimal" value="${esc(st.taxPct)}" style="padding-right:28px;text-align:right" aria-label="Tax set-aside percent"><span class="suffix">%</span></div></div>

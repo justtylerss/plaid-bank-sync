@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Privacy Policy — Ledger Vault Cloud</title>
+<meta name="description" content="What this application collects, where it is stored, how long it is kept, and how to delete it.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Onest:wght@500;600;700&display=swap">
+<style>
+:root {
+  color-scheme: light;
+  --bg: #f1f1ee; --surface: #ffffff; --surface-2: #f6f6f3;
+  --card-border: #e5e5e0; --line: #e6e6e1; --line-2: #d3d3cc;
+  --text: #15171a; --text-2: #4a5056; --muted: #7d8389;
+  --accent: #0b6e4f; --accent-text: #0a6849; --accent-ink: #ffffff; --accent-soft: rgba(11,110,79,.10);
+  --crit: #e23b4a;
+  --radius: 20px; --radius-sm: 12px;
+  --shadow: 0 24px 60px rgba(16,18,20,.10);
+  --font: "Geist", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --display: "Onest", "Geist", system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]):not([data-theme="blue"]):not([data-theme="crimson"]) {
+    color-scheme: dark;
+    --bg: #08090a; --surface: #141618; --surface-2: #1b1e21;
+    --card-border: rgba(255,255,255,.05); --line: rgba(255,255,255,.08); --line-2: rgba(255,255,255,.15);
+    --text: #f4f4f1; --text-2: #b3b8bd; --muted: #7f858b;
+    --accent: #2fbf8f; --accent-text: #45d6a3; --accent-ink: #03140d; --accent-soft: rgba(47,191,143,.14);
+    --crit: #e5484d;
+    --shadow: 0 24px 60px rgba(0,0,0,.5);
+  }
+}
+:root[data-theme="blue"] {
+  color-scheme: light;
+  --bg: #eef5fc; --surface: #ffffff; --surface-2: #f5f9fe;
+  --card-border: #dae7f4; --line: #e2edf8; --line-2: #c4d8ed;
+  --text: #0e1a29; --text-2: #3d5468; --muted: #6a8098;
+  --accent: #1769c8; --accent-text: #135ab0; --accent-ink: #ffffff; --accent-soft: rgba(23,105,200,.10);
+  --crit: #e23b4a;
+  --shadow: 0 24px 60px rgba(17,52,94,.10);
+}
+:root[data-theme="crimson"] {
+  color-scheme: dark;
+  --bg: #0a0708; --surface: #151011; --surface-2: #1d1618;
+  --card-border: rgba(255,255,255,.06); --line: rgba(255,255,255,.08); --line-2: rgba(255,255,255,.16);
+  --text: #f7f3f3; --text-2: #bdb2b4; --muted: #877d7f;
+  --accent: #e5484d; --accent-text: #ff7075; --accent-ink: #12090a; --accent-soft: rgba(229,72,77,.15);
+  --crit: #ff5257;
+  --shadow: 0 24px 60px rgba(0,0,0,.6);
+}
+* { box-sizing: border-box; }
+body {
+  font-family: var(--font); background: var(--bg); color: var(--text);
+  margin: 0; padding: 40px 20px 80px; -webkit-font-smoothing: antialiased;
+  line-height: 1.62; font-size: 15px;
+}
+.wrap { max-width: 660px; margin: 0 auto; }
+.brand { display: flex; align-items: center; gap: 10px; margin-bottom: 26px; }
+.brand-mark { width: 34px; height: 34px; border-radius: 10px; background: var(--accent); display: grid; place-items: center; flex: none; }
+.brand-mark svg { width: 20px; height: 20px; color: var(--accent-ink); }
+.brand-word { font-family: var(--display); font-weight: 650; font-size: 16px; letter-spacing: -.015em; }
+h1 { font-family: var(--display); font-weight: 700; letter-spacing: -.025em; font-size: 30px; margin: 0 0 6px; }
+h2 {
+  font-family: var(--display); font-weight: 650; letter-spacing: -.015em; font-size: 17px;
+  margin: 36px 0 10px; padding-top: 22px; border-top: 1px solid var(--line);
+}
+h2:first-of-type { border-top: 0; padding-top: 0; }
+p { margin: 0 0 13px; color: var(--text-2); }
+.lede { font-size: 16px; color: var(--text-2); margin-bottom: 4px; }
+.stamp { color: var(--muted); font-size: 13px; margin: 0 0 30px; }
+ul { margin: 0 0 13px; padding-left: 20px; color: var(--text-2); }
+li { margin-bottom: 7px; }
+li::marker { color: var(--muted); }
+b, strong { color: var(--text); font-weight: 600; }
+a { color: var(--accent-text); text-decoration: none; font-weight: 500; }
+a:hover { text-decoration: underline; }
+.card {
+  background: var(--surface); border: 1px solid var(--card-border); border-radius: var(--radius);
+  padding: 20px 22px; margin: 18px 0; box-shadow: var(--shadow);
+}
+.card p:last-child, .card ul:last-child { margin-bottom: 0; }
+.card-t { font-family: var(--display); font-weight: 650; font-size: 14px; margin-bottom: 8px; letter-spacing: -.01em; }
+.note { border-left: 3px solid var(--accent); background: var(--accent-soft); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; padding: 14px 16px; margin: 18px 0; }
+.note p:last-child { margin-bottom: 0; }
+.back { display: inline-block; margin-top: 44px; font-size: 14px; }
+footer { margin-top: 40px; padding-top: 22px; border-top: 1px solid var(--line); color: var(--muted); font-size: 13px; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (max-width: 560px) { body { padding: 28px 16px 60px; } h1 { font-size: 25px; } }
+</style>
+<script>
+(function () {
+  try {
+    var t = localStorage.getItem('lvc-theme');
+    if (t && t !== 'system') document.documentElement.setAttribute('data-theme', t);
+  } catch (e) { /* private mode: fall back to the system theme */ }
+})();
+</script>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="brand">
+    <span class="brand-mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18M5 21v-9M9.7 21v-9M14.3 21v-9M19 21v-9M2.5 9.5L12 3l9.5 6.5z"/></svg></span>
+    <span class="brand-word">Ledger Vault Cloud</span>
+  </div>
+
+  <h1>Privacy Policy</h1>
+  <p class="lede">What this application collects, where it goes, how long it stays, and how to get rid of it.</p>
+  <p class="stamp">Last updated 19 September 2026 &middot; Reviewed annually</p>
+
+  <h2>Who this is for</h2>
+  <p>Ledger Vault Cloud is a private personal finance tool. It is not a commercial service, it is not advertised, and it is used by a small number of named individuals who each connect their own bank accounts. There is no public sign-up drive and no intention to grow it into one.</p>
+  <p>It is operated by one person, who is also one of its users.</p>
+
+  <h2>What is collected</h2>
+  <p>Three kinds of information, and nothing else:</p>
+
+  <div class="card">
+    <div class="card-t">From your bank, through Plaid</div>
+    <ul>
+      <li>Account names, account types, and the <b>last four digits</b> of account numbers</li>
+      <li>Balances</li>
+      <li>Transactions: date, amount, description or merchant name, and the category the bank assigns</li>
+      <li>Where available, credit card statement details such as due dates and minimum payments</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <div class="card-t">From you, inside the app</div>
+    <ul>
+      <li>Categories, business names, write-off settings and rules you create</li>
+      <li>Goals, assets, debts, notes and anything else you type in</li>
+      <li>Files you choose to import, such as statements or screenshots</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <div class="card-t">For your account</div>
+    <ul>
+      <li>Your email address</li>
+      <li>Your name, if you chose to give one &mdash; it is optional</li>
+      <li>Your password, stored only as a bcrypt hash that cannot be reversed</li>
+    </ul>
+  </div>
+
+  <div class="note">
+    <p><b>Your bank login is never collected.</b> When you connect an account, your bank username and password are entered inside Plaid's own secure window and go directly to your bank. They never reach this application, and this application has no way to see them.</p>
+  </div>
+
+  <h2>What this application cannot do</h2>
+  <ul>
+    <li><b>It cannot move money.</b> Bank access is read-only. There is no capability to transfer, pay, withdraw or spend.</li>
+    <li>It cannot open accounts, change your bank settings, or act on your behalf anywhere.</li>
+  </ul>
+
+  <h2>Why it is collected</h2>
+  <p>Solely to show you your own money: categorising transactions, tracking spending against budgets, separating business expenses from personal ones, and producing the summaries and exports you ask for.</p>
+  <p>It is not used for anything else. There is no secondary purpose, no profiling, and no decision being made about you.</p>
+
+  <h2>Where it is stored</h2>
+  <p>On servers operated by Railway, located in the United States. All stored data is encrypted at rest at the storage layer by the hosting provider. Your Plaid access credentials receive an additional layer of encryption applied by the application itself, using AES-256-GCM.</p>
+  <p>Traffic between your browser and the server is encrypted with TLS 1.3. Older, weaker versions of TLS are refused.</p>
+
+  <h2>Who else sees it</h2>
+  <ul>
+    <li><b>Plaid</b> &mdash; the service that connects to your bank and supplies the transaction data. Plaid has its own privacy policy governing what they do with it.</li>
+    <li><b>Railway</b> &mdash; the hosting provider, which stores the data on its infrastructure.</li>
+    <li><b>Anthropic</b> &mdash; only if the optional "Ask about your money" feature is switched on, and only when you ask a question. What is sent is a <b>summary</b> &mdash; monthly totals, category totals, and merchant names shortened to forty characters &mdash; never your full transaction list, account numbers or credentials. If the feature is off, nothing is ever sent.</li>
+  </ul>
+  <p>Nobody else. Your data is <b>never sold, rented, or shared for advertising</b>. There is no advertising, no analytics, no tracking pixels, and no third-party scripts beyond the web fonts the page loads and Plaid's own connection window.</p>
+  <p>One user cannot see another user's data. Every part of the application checks who you are and shows only your own records.</p>
+
+  <h2>How long it is kept</h2>
+  <p>Your data is kept for as long as you keep the connection or the account, and no longer:</p>
+  <ul>
+    <li><b>Disconnect a bank</b> and the access credential is immediately revoked with Plaid, and that bank's accounts and transactions are deleted from the application straight away.</li>
+    <li><b>Delete your account</b> and everything belonging to you is removed: transactions, accounts, categories, goals, settings and your login record.</li>
+    <li><b>Imported files</b> are read once to extract the transactions and are not retained afterwards.</li>
+  </ul>
+  <p>There is no archive of deleted data, and deleted records are not kept for later analysis. Copies may persist briefly within the hosting provider's own infrastructure backups, which are outside the application's control and expire on the provider's schedule.</p>
+
+  <h2>What you can do</h2>
+  <ul>
+    <li><b>See everything held about you</b> &mdash; it is all visible in the app; nothing is hidden from you</li>
+    <li><b>Export it</b> &mdash; Settings has a full CSV export and a complete JSON backup</li>
+    <li><b>Correct it</b> &mdash; any transaction, category or detail can be edited</li>
+    <li><b>Delete it</b> &mdash; individually, one bank at a time, or all at once</li>
+  </ul>
+  <p>If you want your account and everything in it removed and would rather someone else did it, ask and it will be done.</p>
+
+  <h2>Security</h2>
+  <p>Passwords are hashed with bcrypt and never stored in readable form. Sessions use signed cookies that JavaScript cannot read and that are not sent to other sites. Administrative access to the systems holding the data requires an authenticator app in addition to a password.</p>
+  <p>This is a small application maintained by one person. It does not have the monitoring, auditing or independent testing that a large company would have, and it would be dishonest to imply otherwise. The full technical security policy is kept alongside the source code.</p>
+
+  <h2>Children</h2>
+  <p>This application is not intended for anyone under 18 and no account is knowingly created for a minor.</p>
+
+  <h2>Changes</h2>
+  <p>If what is collected, where it is stored, or who it is shared with changes, this page is updated and the date at the top changes with it. Because the userbase is small and known, material changes are communicated directly.</p>
+
+  <h2>Contact</h2>
+  <p>Questions, corrections, or a request to delete everything: <a href="mailto:tylerle818@gmail.com">tylerle818@gmail.com</a>.</p>
+
+  <a class="back" href="/">&larr; Back to Bank Sync</a>
+
+  <footer>Ledger Vault Cloud &middot; a private personal finance application</footer>
+
+</div>
+</body>
+</html>

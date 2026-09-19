@@ -233,6 +233,13 @@ app.use(express.json());
 app.use(cookieParser());
 app.use(express.static(path.join(__dirname, 'public')));
 
+// A clean URL for the privacy policy. It is deliberately outside the auth
+// gate: the point of a privacy policy is that you can read it before handing
+// anything over, and it is the link given to Plaid.
+app.get(['/privacy', '/privacy-policy'], (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'privacy.html'));
+});
+
 // ---- Auth routes -----------------------------------------------------------
 
 app.post('/api/auth/signup', async (req, res) => {

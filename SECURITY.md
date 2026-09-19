@@ -109,7 +109,32 @@ Stated plainly so that no one relies on a control that does not exist.
 
 ---
 
-## 4. Procedures
+## 4. Retention and deletion
+
+Data is kept while the connection or the account that produced it exists, and
+not beyond it.
+
+| What | Kept until | Deleted by |
+|---|---|---|
+| Transactions, balances, account details | The bank connection is removed | Disconnecting that bank |
+| Plaid `access_token` | The bank connection is removed | Disconnecting that bank, which also revokes it at Plaid |
+| Everything belonging to a user | The account is removed | Deleting the account |
+| Imported files | Not retained | Read once for their transactions, then discarded |
+
+There is no archive of deleted records and nothing is kept back for later
+analysis. Copies may survive briefly in the hosting provider’s own
+infrastructure backups, which are outside this application’s control and
+expire on their schedule.
+
+The user-facing statement of this is `public/privacy.html`, served at
+`/privacy` without authentication — a privacy policy you have to log in to
+read is not one.
+
+Reviewed annually, with the rest of this document.
+
+---
+
+## 5. Procedures
 
 **Adding a user.** Self-service sign-up exists. Because the application is
 private, the owner is expected to know every account that exists. Unrecognised
@@ -143,7 +168,7 @@ change record.
 
 ---
 
-## 5. Review
+## 6. Review
 
 This document is reviewed when the threat picture changes — a new user, a new
 integration, a new class of stored data — and at least annually. The date at
