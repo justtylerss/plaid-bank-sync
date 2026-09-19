@@ -2802,7 +2802,7 @@ const CHANGELOG = [
     date: 'Sep 19, 2026',
     items: [
       'Payment methods is now Cards & accounts, and the cards are grouped into Credit cards, Debit cards and Other accounts instead of one mixed grid.',
-      'A Payments due card lists every credit card with a due day, soonest first, with how many days away it is. The figure beside each is what you spent on that card this month — statement balances aren’t tracked, so it doesn’t pretend to be the amount owed.',
+      'A Payments due card lists your credit cards, soonest due first, with how many days away each is. Cards with no due day set say so and can be fixed from there. The figure beside each is what you spent on that card this month — statement balances aren’t tracked, so it doesn’t pretend to be the amount owed.',
       'Payment due no longer appears on debit cards or other accounts, and the due-day field is only offered for credit cards.',
       'Receipt tracking removed throughout: the Receipt saved checkbox, receipt location, attach-photo control, No receipt badges, the missing-receipts filter and tax-checklist nag, and the Receipt columns in both CSV exports. Photographing a receipt still works as an import — Claude reads the amount, date and merchant off it — it just isn’t filed as documentation any more.',
       '“Always categorize this way” now fixes transactions already in your books, not just future ones, with an Undo. The prop firm box lists every known firm in its dropdown.',
@@ -2884,23 +2884,31 @@ VIEWS.cards = {
     const others = list.filter((p) => !grouped.has(p.id));
     if (others.length) sections += `<h3 class="pm-group">Other accounts<span>${plural(others.length, 'account')}</span></h3><div class="pm-grid">${others.map(cardHTML).join('')}</div>`;
 
-    // What is owed and when, gathered in one place instead of one date
-    // buried on each card. Statement balances are not tracked, so this
-    // shows the date and what was spent on the card this month — it does
-    // not claim to be the amount due.
-    const dues = list
-      .filter((p) => !p.archived && p.type === 'credit' && p.dueDay)
-      .map((p) => ({ p, date: nextDue(p.dueDay) }))
-      .filter((d) => d.date)
-      .sort((a, b) => (a.date < b.date ? -1 : 1));
-    const dueCard = dues.length ? UI.card('Payments due', `<div class="list">${dues.map(({ p, date }) => {
-      const away = daysBetween(todayStr(), date);
-      const when = away <= 0 ? 'Today' : away === 1 ? 'Tomorrow' : `In ${plural(away, 'day')}`;
+    // Every credit card appears here, not only the ones with a due day set.
+    // Gating the whole card on dueDay meant it rendered as nothing at all —
+    // indistinguishable from the feature being missing — when the field is
+    // blank by default and bank-synced cards never set it. A card with no due
+    // day now says so and offers to fix it.
+    const creditCards = list.filter((p) => !p.archived && p.type === 'credit');
+    const dues = creditCards
+      .map((p) => ({ p, date: p.dueDay ? nextDue(p.dueDay) : null }))
+      .sort((a, b) => {
+        if (!a.date && !b.date) return 0;
+        if (!a.date) return 1;
+        if (!b.date) return -1;
+        return a.date < b.date ? -1 : 1;
+      });
+    const anyDue = dues.some((d) => d.date);
+    const dueCard = creditCards.length ? UI.card('Payments due', `<div class="list">${dues.map(({ p, date }) => {
+      const away = date ? daysBetween(todayStr(), date) : null;
+      const when = away === null ? '' : away <= 0 ? 'Due today' : away === 1 ? 'Tomorrow' : `In ${plural(away, 'day')}`;
+      const sub = date ? `${esc(fmtDate(date))} · ${esc(when)}` : 'No due day set — tap to add one';
+      const spend = money(stat(p.id).m, { whole: true });
       return `<div class="list-item click" data-act="pm-edit" data-id="${p.id}"><i class="dot" style="--dot:${colorVar(p.color)}"></i>
         <div class="li-main"><div class="li-title">${esc(p.name)}${p.last4 ? ` ···· ${esc(p.last4)}` : ''}</div>
-        <div class="li-sub">${esc(fmtDate(date))} · ${esc(when)}</div></div>
-        <div class="li-amt amt">${esc(money(stat(p.id).m, { whole: true }))}</div></div>`;
-    }).join('')}</div><p class="muted small" style="margin-top:10px">Amount shown is what you spent on that card this month, not the statement balance.</p>`, { cls: 's12' }) : '';
+        <div class="li-sub ${date ? '' : 'muted'}">${sub}</div></div>
+        <div class="li-amt amt">${esc(spend)}</div></div>`;
+    }).join('')}</div><p class="muted small" style="margin-top:10px">${anyDue ? 'Amount shown is what you spent on that card this month, not the statement balance.' : 'Add a due day to a card and it will be tracked here. Amounts shown are this month&rsquo;s spending on each card, not statement balances.'}</p>`, { cls: 's12' }) : '';
 
     const unassigned = sum(S.transactions.filter((t) => !t.pm && t.type === 'expense' && t.date.startsWith(mk)), (t) => t.amount);
     return `<div class="row between wrap" style="margin-bottom:14px"><p class="note">${icon('shield')}Only nicknames and last 4 digits are stored, encrypted. Never full numbers, CVV or PINs.</p><button class="btn sm" data-act="pm-add">${icon('plus')}Add card or account</button></div>
