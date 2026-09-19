@@ -2554,6 +2554,9 @@ const CHANGELOG = [
   {
     date: 'Sep 19, 2026',
     items: [
+      'Bills & subs can now be built from your connected banks — "Find from connected banks" pulls Plaid’s detected recurring streams and fills in amount, frequency, next due date, category and card. Re-running refreshes the figures and keeps any categorisation you set yourself.',
+      'Bank Sync now asks how much history to pull when you connect (90 days up to 2 years, defaulting to the 2-year maximum). Plaid previously defaulted to 90 days, which is why older transactions were missing. The window is fixed when a bank is linked, so banks connected before this need disconnecting and reconnecting to get more.',
+      'Amounts no longer auto-blur after 10 minutes away by default. The setting is still there under Settings & privacy → Auto-hide amounts, and existing accounts keep whatever they already had.',
       'Prop firms page split into Overview, Evaluations, and Payouts tabs, plus automatic detection of ~20 known prop firms so their fees and payouts are tagged to your trading business without a manual toggle.',
       '"Paid with" fills in automatically on bank-synced transactions — matched to an existing card by last 4 digits, or a new one added for you.',
       'Bank-synced transactions now go straight into your books instead of the review inbox; the Import button became Refresh, re-syncing with Plaid on click.',

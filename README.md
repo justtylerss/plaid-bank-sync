@@ -108,6 +108,38 @@ bottom, grouped by date, newest first. It's a hardcoded list in the code
 (search for `CHANGELOG` in `public/ledger/index.html`) — future updates
 need a new entry added there to show up.
 
+**How much history you get (important):** Plaid only backfills **90 days**
+of transactions by default, which is the usual reason older transactions
+look missing. Bank Sync now asks up front — **History** next to "Connect a
+bank or card" offers 90 days, 6 months, this year, 1 year, or 2 years (the
+maximum, and the default).
+
+The catch: Plaid fixes this window when the bank is linked and will not let
+it be raised afterwards — per `/link/token/create`, "Once Transactions has
+been added to an Item, this value cannot be updated." So **banks connected
+before this existed still only have 90 days, and the only way to extend
+them is Disconnect followed by connecting again** with the picker set
+higher. Transactions already synced stay where they are; the reconnect
+backfills around them and dedupes on Plaid's own transaction id.
+
+**Bills & subs fill themselves in:** the Bills & subscriptions screen has
+**Find from connected banks**, which pulls Plaid's detected recurring
+streams (`/api/recurring`) and turns them into scheduled items — name,
+amount, frequency, next due date, category, and the card, matched by last
+4. Running it again refreshes amounts and dates by Plaid's stream id rather
+than creating duplicates, and anything you re-categorized by hand keeps
+your version. Bills you typed in yourself get adopted rather than
+duplicated when Plaid finds the same merchant.
+
+Detection quality depends on history: Plaid advises **at least 180 days**
+for good results, so a bank still on the old 90-day window will find little
+until it is reconnected.
+
+**Amounts no longer blur on their own.** Auto-hide after idle defaults to
+off now; it's still available under Settings & privacy → Auto-hide amounts,
+and **H** toggles hiding at any time. Accounts created before this keep the
+10-minute setting they already had.
+
 ## 1. Get Plaid API keys (free, instant)
 
 1. Sign up at https://dashboard.plaid.com/signup
