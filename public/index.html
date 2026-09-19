@@ -27,7 +27,7 @@
   --mono: "Geist Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
 }
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]):not([data-theme="blue"]) {
+  :root:not([data-theme="light"]):not([data-theme="blue"]):not([data-theme="crimson"]) {
     color-scheme: dark;
     --bg: #08090a; --surface: #141618; --surface-2: #1b1e21; --surface-3: #25292d;
     --card-border: rgba(255,255,255,.05); --line: rgba(255,255,255,.08); --line-2: rgba(255,255,255,.15);
@@ -158,6 +158,19 @@ svg.i { width: 18px; height: 18px; flex: none; stroke: currentColor; fill: none;
   --c0: #1769c8; --c1: #eb6834; --c2: #1baf7a; --c3: #eda100;
   --c4: #e87ba4; --c5: #4a3aa7; --c6: #4a3aa7; --c7: #e34948;
   --shadow: 0 24px 60px rgba(17,52,94,.14);
+}
+/* Black and red, matching the Ledger. */
+:root[data-theme="crimson"] {
+  color-scheme: dark;
+  --bg: #0a0708; --surface: #151011; --surface-2: #1d1618; --surface-3: #271e20;
+  --card-border: rgba(255,255,255,.06); --line: rgba(255,255,255,.08); --line-2: rgba(255,255,255,.16);
+  --text: #f7f3f3; --text-2: #bdb2b4; --muted: #877d7f;
+  --accent: #e5484d; --accent-text: #ff7075; --accent-ink: #12090a; --accent-soft: rgba(229,72,77,.15);
+  --btn: #f7f3f3; --btn-ink: #0a0708;
+  --pos: #3ccf7f; --neg: #ff8a8f; --warn: #f0a92b; --crit: #ff5257;
+  --c0: #e5484d; --c1: #f08a3c; --c2: #3ccf7f; --c3: #d9a520;
+  --c4: #e87ba4; --c5: #9085e9; --c6: #4ec3d9; --c7: #c2705f;
+  --shadow: 0 24px 60px rgba(0,0,0,.72);
 }
 </style>
 <script>

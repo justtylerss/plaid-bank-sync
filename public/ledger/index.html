@@ -44,7 +44,7 @@
   --mono: "Geist Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
 }
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]):not([data-theme="blue"]) {
+  :root:not([data-theme="light"]):not([data-theme="blue"]):not([data-theme="crimson"]) {
     color-scheme: dark;
     --bg: #08090a; --surface: #141618; --surface-2: #1b1e21; --surface-3: #25292d;
     --card-border: rgba(255,255,255,.05); --line: rgba(255,255,255,.08); --line-2: rgba(255,255,255,.15);
@@ -954,6 +954,26 @@ body.dragging::after { content: "Drop to import"; position: fixed; inset: 12px; 
   --c0: #1769c8; --c1: #eb6834; --c2: #1baf7a; --c3: #eda100;
   --c4: #e87ba4; --c5: #008300; --c6: #4a3aa7; --c7: #e34948;
   --shadow: 0 24px 60px rgba(17,52,94,.14);
+}
+/* Black and red. The background is warmed slightly off pure black — true
+   #000 next to a saturated red makes the red vibrate and the text harder to
+   hold. Two reds do different jobs: the accent for things you press, a softer
+   coral for money leaving, so a negative amount never looks like a button.
+   Income stays green, because that distinction is worth more than matching
+   the theme. */
+:root[data-theme="crimson"] {
+  color-scheme: dark;
+  --bg: #0a0708; --surface: #151011; --surface-2: #1d1618; --surface-3: #271e20;
+  --card-border: rgba(255,255,255,.06); --line: rgba(255,255,255,.08); --line-2: rgba(255,255,255,.16);
+  --text: #f7f3f3; --text-2: #bdb2b4; --muted: #877d7f;
+  --accent: #e5484d; --accent-text: #ff7075; --accent-ink: #12090a; --accent-soft: rgba(229,72,77,.15);
+  --feature: #8c1c22; --feature-ink: #ffffff; --feature-mute: rgba(255,255,255,.76); --feature-line: rgba(255,255,255,.18);
+  --btn: #f7f3f3; --btn-ink: #0a0708;
+  --pos: #3ccf7f; --neg: #ff8a8f; --warn: #f0a92b; --crit: #ff5257;
+  --grid: #241c1e; --axis: #3b2f31;
+  --c0: #e5484d; --c1: #f08a3c; --c2: #3ccf7f; --c3: #d9a520;
+  --c4: #e87ba4; --c5: #9085e9; --c6: #4ec3d9; --c7: #c2705f;
+  --shadow: 0 24px 60px rgba(0,0,0,.72);
 }
 </style>
 <script>
@@ -5931,7 +5951,7 @@ VIEWS.settings = {
       <div class="set-row"><div><div class="sr-t">Currency</div></div>${sel('set-currency', st.currency, [['USD', 'USD $'], ['CAD', 'CAD $'], ['EUR', 'EUR €'], ['GBP', 'GBP £'], ['AUD', 'AUD $'], ['MXN', 'MXN $'], ['INR', 'INR ₹'], ['PKR', 'PKR ₨']])}</div>
       <div class="set-row"><div><div class="sr-t">Tax set-aside rate</div><div class="sr-d">Used for the "set aside" estimates. Not a tax calculation.</div></div><div class="input-wrap" style="width:96px;flex:none"><input class="input" id="set-taxpct" data-change="set-taxpct" inputmode="decimal" value="${esc(st.taxPct)}" style="padding-right:28px;text-align:right" aria-label="Tax set-aside percent"><span class="suffix">%</span></div></div>
       <div class="set-row"><div><div class="sr-t">Self-employed income lands in</div><div class="sr-d">Banks report trading payouts and sales commissions the same way, so pick which one they are for you.</div></div>${sel('set-incomedef', st.incomeDefault || 'Trading payouts', catsOfKind('income').map((c) => [c.name, c.name]))}</div>
-      <div class="set-row"><div><div class="sr-t">Theme</div><div class="sr-d">Applies to Bank Sync as well. Stored on this device.</div></div>${sel('set-theme', ui.theme, [['system', 'Follow system'], ['light', 'Light'], ['blue', 'Light blue'], ['dark', 'Dark']])}</div>
+      <div class="set-row"><div><div class="sr-t">Theme</div><div class="sr-d">Applies to Bank Sync as well. Stored on this device.</div></div>${sel('set-theme', ui.theme, [['system', 'Follow system'], ['light', 'Light'], ['blue', 'Light blue'], ['dark', 'Dark'], ['crimson', 'Black & red']])}</div>
       <div class="set-row"><div><div class="sr-t">Row density</div><div class="sr-d">Compact fits more on screen. Useful once a table is long enough to scroll.</div></div><button class="btn sm" data-act="density">${ui.compact ? 'Comfortable' : 'Compact'}</button></div>
       <div class="set-row"><div><div class="sr-t">Animation</div><div class="sr-d">${esc(motionStatusText())}</div></div>${sel('set-motion', ui.motion, [['full', 'Full (default)'], ['system', 'Follow system'], ['off', 'Off']])}</div>`);
     const chat = UI.card('Import from any Claude chat', `
