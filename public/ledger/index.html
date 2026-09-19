@@ -527,6 +527,9 @@ tr:hover .row-actions, .row-actions:focus-within { opacity: 1; }
   .card { break-inside: avoid; border-color: #ccc; }
   .privacy .amt { filter: none; }
 }
+.cat-glyph { display: inline-flex; align-items: center; justify-content: center; width: 16px;
+  font-size: 12px; line-height: 1; flex: none; }
+
 /* ============ Bills calendar ============ */
 .cal-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
 .cal-dow { font-size: 11px; font-weight: 650; color: var(--muted); text-transform: uppercase;
@@ -1289,6 +1292,36 @@ function cashForecast(days = 60) {
     end: points[points.length - 1].balance, hasAccounts: liquid.length > 0 };
 }
 
+/* ---------- Refunds ----------
+   Money coming back from a merchant you paid is not income, but it lands in
+   the books looking exactly like income, which quietly inflates what you
+   appear to earn and flatters the savings rate.
+
+   This finds them rather than asking you to mark them: an incoming amount
+   that matches an earlier outgoing amount at the same merchant. Same
+   merchant and same amount together are a strong signal — a coincidence
+   needs both to line up — so the window can be generous without being noisy. */
+const REFUND_WINDOW_DAYS = 120;
+function detectRefunds() {
+  const out = [];
+  const spends = S.transactions.filter((t) => t.type === 'expense');
+  for (const t of S.transactions) {
+    if (t.type !== 'income') continue;
+    const key = nameKey(t.desc);
+    if (!key || key.length < 3) continue;
+    let match = null;
+    for (const s of spends) {
+      if (s.amount !== t.amount) continue;
+      if (s.date > t.date) continue;                    // a refund follows its purchase
+      if (daysBetween(s.date, t.date) > REFUND_WINDOW_DAYS) continue;
+      if (nameKey(s.desc) !== key) continue;
+      if (!match || s.date > match.date) match = s;     // the most recent candidate
+    }
+    if (match) out.push({ t, original: match });
+  }
+  return out.sort((a, b) => (a.t.date < b.t.date ? 1 : -1));
+}
+
 function monthReview(mk) {
   const cur = monthTotals(mk);
   const was = monthTotals(addMonths(mk, -1));
@@ -1668,6 +1701,11 @@ function needsReview() {
     if (c && /^other/i.test(c.name) && t.amount >= 10000) {
       add(t, `Categorised as ${c.name}`, 'Large enough to be worth placing properly.');
     }
+  }
+  // Money back from a merchant you paid, sitting in the books as income.
+  for (const { t, original } of detectRefunds()) {
+    add(t, 'Looks like a refund, not income',
+      'Matches ' + original.desc + ' on ' + fmtDate(original.date) + '. Counting it as income overstates what you earn.');
   }
   return out;
 }
@@ -2250,7 +2288,18 @@ const UI = {
   empty(ic, title, text, actions = '') {
     return `<div class="empty"><div class="ico-tile">${icon(ic)}</div><h3>${esc(title)}</h3><p>${text}</p>${actions ? `<div class="row wrap">${actions}</div>` : ''}</div>`;
   },
-  cat(c) { return c ? `<span class="cat"><i class="dot" style="--dot:${colorVar(c.color)}"></i>${esc(c.name)}</span>` : '<span class="muted">Uncategorized</span>'; },
+  // A glyph per category, worked out from the name. Nothing is stored, so a
+  // renamed category re-matches on its own and an unrecognised one simply
+  // falls back to the colour dot it already had.
+  catIcon(c) {
+    if (!c) return '';
+    const n = norm(c.name);
+    for (const [glyph, words] of CAT_GLYPHS) {
+      if (words.some((w) => n.includes(w))) return glyph;
+    }
+    return '';
+  },
+  cat(c) { return c ? `<span class="cat">${this.catIcon(c) ? `<span class="cat-glyph">${this.catIcon(c)}</span>` : `<i class="dot" style="--dot:${colorVar(c.color)}"></i>`}${esc(c.name)}</span>` : '<span class="muted">Uncategorized</span>'; },
   pm(p) { return p ? `<span class="nowrap">${esc(p.name)}${p.last4 ? ` <span class="mono muted">··${esc(p.last4)}</span>` : ''}</span>` : '<span class="muted">—</span>'; },
   delta(cur, prev, upGood = true, label = 'vs last month') {
     if (prev == null || prev === 0 || cur == null) return '';
@@ -3328,6 +3377,34 @@ ACT['rec-del'] = async (el) => { const r = byId(S.recurring, el.dataset.id); if 
 /* =========================================================
    Cards & Accounts
    ========================================================= */
+// Ordered: the first match wins, so put the specific ahead of the general
+// ('car insurance' must beat 'insurance', 'trading business' must beat the
+// generic business words).
+const CAT_GLYPHS = [
+  ['🏠', ['housing', 'rent', 'mortgage']],
+  ['💡', ['utilities', 'electric', 'water', 'gas bill']],
+  ['🛒', ['groceries', 'grocery', 'food shop', 'supermarket']],
+  ['🍽️', ['dining', 'restaurant', 'eating out', 'takeaway', 'takeout']],
+  ['🚗', ['car &', 'car insurance', 'auto', 'vehicle']],
+  ['🚇', ['transport', 'transit', 'fuel', 'petrol', 'gas &']],
+  ['📱', ['phone', 'internet', 'mobile']],
+  ['📺', ['subscription', 'streaming']],
+  ['🛍️', ['shopping', 'clothes', 'apparel']],
+  ['🏋️', ['health', 'fitness', 'gym', 'medical', 'doctor']],
+  ['🎬', ['entertainment', 'movies', 'games']],
+  ['✈️', ['travel', 'flight', 'hotel']],
+  ['🎓', ['education', 'course', 'tuition']],
+  ['🧴', ['personal care', 'haircut', 'beauty']],
+  ['🎁', ['gifts', 'giving', 'charity', 'donation']],
+  ['🏦', ['fees & interest', 'bank fee', 'interest']],
+  ['📈', ['trading business', 'prop firm', 'trading payouts']],
+  ['🛡️', ['insurance']],
+  ['💼', ['business', 'commissions']],
+  ['💰', ['paycheck', 'salary', 'income']],
+  ['↩️', ['refund']],
+  ['💵', ['interest & dividends', 'dividend']],
+];
+
 const PM_TYPES = { credit: 'Credit', debit: 'Debit', bank: 'Bank / ACH', cash: 'Cash', wallet: 'Digital wallet', other: 'Other' };
 
 // Shown in Settings under "What's new". Add a line here whenever something
