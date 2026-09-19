@@ -527,6 +527,31 @@ tr:hover .row-actions, .row-actions:focus-within { opacity: 1; }
   .card { break-inside: avoid; border-color: #ccc; }
   .privacy .amt { filter: none; }
 }
+/* ============ Bills calendar ============ */
+.cal-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
+.cal-dow { font-size: 11px; font-weight: 650; color: var(--muted); text-transform: uppercase;
+  letter-spacing: .06em; padding: 2px 4px 6px; }
+.cal-cell { min-height: 84px; border: 1px solid var(--line); border-radius: 10px; padding: 6px;
+  display: flex; flex-direction: column; gap: 4px; background: var(--surface); }
+.cal-cell.blank { border: 0; background: none; min-height: 0; }
+.cal-cell.past { opacity: .55; }
+.cal-cell.today { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.cal-day { display: flex; justify-content: space-between; align-items: baseline; font-size: 12px;
+  font-weight: 600; color: var(--text-2); }
+.cal-day .amt { font-size: 11px; color: var(--muted); font-weight: 500; }
+.cal-pill { display: block; width: 100%; text-align: left; font: inherit; font-size: 11px;
+  line-height: 1.3; padding: 3px 6px; border-radius: 6px; border: 0; cursor: pointer;
+  background: var(--surface-3); color: var(--text-2); overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; }
+.cal-pill:hover { background: var(--accent-soft); color: var(--accent-text); }
+.cal-pill.in { background: color-mix(in srgb, var(--pos) 16%, transparent); color: var(--pos); }
+.cal-pill.card { background: color-mix(in srgb, var(--warn) 16%, transparent); color: var(--warn); }
+.cal-more { font-size: 10.5px; color: var(--muted); padding-left: 6px; }
+@media (max-width: 720px) {
+  .cal-cell { min-height: 62px; padding: 4px; }
+  .cal-pill { font-size: 10px; }
+}
+
 /* ============ Motion ============
    Applied on navigation only, never on every re-render. Re-animating cards
    each time a filter changes is the single fastest way to make an interface
@@ -729,6 +754,63 @@ function relDays(s) {
   if (n === -1) return 'yesterday';
   return n > 0 ? `in ${n} days` : `${-n} days ago`;
 }
+// The mirror of nextDate. A schedule only ever knows its *next* occurrence,
+// so showing a month that has already passed means walking backwards to it.
+function prevDate(s, freq, anchor) {
+  const d = parseD(s);
+  if (freq === 'weekly') { d.setDate(d.getDate() - 7); return dStr(d); }
+  if (freq === 'biweekly') { d.setDate(d.getDate() - 14); return dStr(d); }
+  const n = { monthly: 1, quarterly: 3, yearly: 12 }[freq] || 1;
+  const day = anchor || d.getDate();
+  const t = new Date(d.getFullYear(), d.getMonth() - n, 1);
+  const dim = new Date(t.getFullYear(), t.getMonth() + 1, 0).getDate();
+  t.setDate(Math.min(day, dim));
+  return dStr(t);
+}
+
+// Every bill and card payment landing in one month, keyed by day. A list
+// tells you what you owe; a calendar tells you when the heavy weeks are,
+// which is the question people actually have.
+function billsInMonth(mk) {
+  const first = mk + '-01';
+  const dim = new Date(Number(mk.slice(0, 4)), Number(mk.slice(5, 7)), 0).getDate();
+  const last = mk + '-' + pad(dim);
+  const byDay = new Map();
+  const add = (date, item) => {
+    const day = Number(date.slice(8, 10));
+    if (!byDay.has(day)) byDay.set(day, []);
+    byDay.get(day).push(item);
+  };
+
+  for (const r of S.recurring) {
+    if (r.active === false || !r.next) continue;
+    // Rewind to at or before the month, then walk forward through it. Both
+    // loops are bounded so a schedule that cannot advance cannot hang.
+    let d = r.next;
+    let guard = 0;
+    while (d > last && guard++ < 60) {
+      const p = prevDate(d, r.freq, r.anchor);
+      if (!p || p >= d) break;
+      d = p;
+    }
+    guard = 0;
+    while (d <= last && guard++ < 60) {
+      if (d >= first) add(d, { kind: 'bill', id: r.id, name: r.name, amount: r.amount, type: r.type });
+      const nx = nextDate(d, r.freq, r.anchor);
+      if (!nx || nx <= d) break;
+      d = nx;
+    }
+  }
+
+  for (const p of S.paymentMethods) {
+    if (p.archived || p.type !== 'credit' || !p.dueDay) continue;
+    const day = Math.min(Number(p.dueDay), dim);
+    if (day >= 1) add(mk + '-' + pad(day), { kind: 'card', id: p.id, name: p.name, color: p.color });
+  }
+
+  return { byDay, dim, firstWeekday: new Date(Number(mk.slice(0, 4)), Number(mk.slice(5, 7)) - 1, 1).getDay() };
+}
+
 function nextDate(s, freq, anchor) {
   const d = parseD(s);
   if (freq === 'weekly') { d.setDate(d.getDate() + 7); return dStr(d); }
@@ -1153,6 +1235,60 @@ function monthTotals(mk) {
    the current-vs-previous period bounds for a given granularity. */
 // A month summarised against the one before it. Everything here comes from
 // transactions already in the books, so there is no new state to keep in sync.
+/* ---------- Cash flow forecast ----------
+   Everything else in the app describes what already happened. This is the
+   one thing that looks forward: from what is liquid today, walk the bill and
+   income schedule out day by day and see where the balance goes.
+
+   The number that matters is not the end balance, it is the lowest point and
+   the day it lands on — that is the day something bounces. Discretionary
+   spending is a flat daily average from the last 90 days, which is crude but
+   honest; the alternative is pretending day-to-day spending is predictable. */
+const LIQUID_TYPES = ['checking', 'savings', 'cash'];
+function cashForecast(days = 60) {
+  const liquid = S.accounts.filter((a) => a.kind === 'asset' && LIQUID_TYPES.includes(a.type));
+  const start = sum(liquid, (a) => a.balance);
+  const today = todayStr();
+  const end = addDays(today, days);
+
+  // Day-to-day spending, averaged. Scheduled items are excluded so they are
+  // not counted twice — they arrive through the schedule below.
+  const since = addDays(today, -90);
+  const loose = S.transactions.filter((t) => t.type === 'expense' && t.date >= since && t.date < today && !t.rec);
+  const daily = loose.length ? Math.round(sum(loose, (t) => t.amount) / 90) : 0;
+
+  const events = [];
+  for (const r of S.recurring) {
+    if (r.active === false || !(r.amount > 0)) continue;
+    let d = r.next;
+    let guard = 0;
+    while (d <= end && guard++ < 400) {
+      if (d >= today) events.push({ date: d, name: r.name, amount: r.type === 'income' ? r.amount : -r.amount });
+      const nxt = nextDate(d, r.freq, r.anchor);
+      if (!nxt || nxt <= d) break;   // never loop on a schedule that cannot advance
+      d = nxt;
+    }
+  }
+
+  const points = [];
+  let balance = start;
+  let low = { balance: start, date: today };
+  for (let k = 0; k <= days; k++) {
+    const date = addDays(today, k);
+    if (k > 0) {
+      balance -= daily;
+      for (const e of events) if (e.date === date) balance += e.amount;
+    }
+    points.push({ date, balance });
+    if (balance < low.balance) low = { balance, date };
+  }
+
+  const income = sum(events.filter((e) => e.amount > 0), (e) => e.amount);
+  const bills = -sum(events.filter((e) => e.amount < 0), (e) => e.amount);
+  return { start, points, low, daily, events, income, bills, days,
+    end: points[points.length - 1].balance, hasAccounts: liquid.length > 0 };
+}
+
 function monthReview(mk) {
   const cur = monthTotals(mk);
   const was = monthTotals(addMonths(mk, -1));
@@ -1538,6 +1674,77 @@ function needsReview() {
 
 // The month, in the terms you would describe it to someone: more or less than
 // last month, where it went, and the one purchase that stands out.
+// The forecast, stated plainly. The lowest point leads because that is the
+// day that actually matters; the ending balance is the reassuring number and
+// the least useful one.
+// A month of bills laid out as a month. Days with nothing stay empty on
+// purpose: the gaps are what make a heavy week visible at a glance.
+function billsCalendarHTML(mk) {
+  const { byDay, dim, firstWeekday } = billsInMonth(mk);
+  if (!byDay.size) return '';
+  const today = todayStr();
+  const cells = [];
+  for (let k = 0; k < firstWeekday; k++) cells.push('<div class="cal-cell blank"></div>');
+  for (let day = 1; day <= dim; day++) {
+    const date = mk + '-' + pad(day);
+    const items = byDay.get(day) || [];
+    const isToday = date === today;
+    const past = date < today;
+    const total = items.filter((x) => x.kind === 'bill' && x.type === 'expense').reduce((a, x) => a + x.amount, 0);
+    const pills = items.slice(0, 3).map((x) => x.kind === 'card'
+      ? '<button class="cal-pill card" data-act="pm-edit" data-id="' + x.id + '" title="Card payment due">' + esc(x.name) + '</button>'
+      : '<button class="cal-pill ' + (x.type === 'income' ? 'in' : '') + '" data-act="rec-edit" data-id="' + x.id + '">' + esc(x.name) + '</button>').join('');
+    const more = items.length > 3 ? '<span class="cal-more">+' + (items.length - 3) + ' more</span>' : '';
+    cells.push('<div class="cal-cell' + (isToday ? ' today' : '') + (past ? ' past' : '')
+      + '"><div class="cal-day">' + day + (total ? '<span class="amt">' + esc(money(total, { whole: true })) + '</span>' : '')
+      + '</div>' + pills + more + '</div>');
+  }
+  const dows = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+    .map((d) => '<div class="cal-dow">' + d + '</div>').join('');
+  return UI.card('Bills calendar',
+    '<div class="cal-grid">' + dows + cells.join('') + '</div>',
+    { sub: monthLabel(mk), cls: 's12' });
+}
+
+function forecastHTML() {
+  const fc = cashForecast(ui.forecastDays || 60);
+  if (!fc.hasAccounts) {
+    return UI.card('Cash flow forecast',
+      '<p class="text-2">Add a checking or savings balance under Net Worth and this will project it forward through your bills and income.</p>',
+      { cls: 's12' });
+  }
+  const seg = '<div class="seg" role="group" aria-label="Forecast range">'
+    + [[30, '30 days'], [60, '60 days'], [90, '90 days']].map(([d, label]) =>
+        '<button type="button" class="' + ((ui.forecastDays || 60) === d ? 'active' : '')
+        + '" data-act="fc-range" data-days="' + d + '">' + label + '</button>').join('')
+    + '</div>';
+
+  const dipsNegative = fc.low.balance < 0;
+  const lowLine = fc.low.date === todayStr()
+    ? 'Balance never dips below where it is today.'
+    : 'Lowest point <b class="amt">' + esc(money(fc.low.balance)) + '</b> on ' + esc(fmtDate(fc.low.date, { year: true }));
+
+  const chart = chartSlot(lineChart({
+    labels: fc.points.map((p) => fmtDate(p.date)),
+    series: [{ name: 'Projected balance', color: 'var(--c0)', values: fc.points.map((p) => p.balance), area: true }],
+    labelEvery: Math.ceil(fc.points.length / 6),
+  }), 200);
+
+  const body = '<div class="row wrap" style="gap:22px;margin-bottom:14px">'
+    + '<div><div class="muted small">Liquid today</div><div class="amt" style="font-size:20px;font-weight:650">' + esc(money(fc.start)) + '</div></div>'
+    + '<div><div class="muted small">Bills due</div><div class="amt" style="font-size:20px;font-weight:650">' + esc(money(fc.bills)) + '</div></div>'
+    + '<div><div class="muted small">Income due</div><div class="amt" style="font-size:20px;font-weight:650">' + esc(money(fc.income)) + '</div></div>'
+    + '<div><div class="muted small">In ' + fc.days + ' days</div><div class="amt" style="font-size:20px;font-weight:650">' + esc(money(fc.end)) + '</div></div>'
+    + '</div>'
+    + (dipsNegative
+      ? '<p class="note" style="margin-bottom:10px">' + icon('alert') + '<span>Projected to go negative — ' + lowLine + '</span></p>'
+      : '<p class="text-2" style="margin-bottom:10px">' + lowLine + '</p>')
+    + chart
+    + '<p class="muted small" style="margin-top:10px">Bills and income come from your schedule. Day-to-day spending is your average of the last 90 days (' + esc(money(fc.daily)) + ' a day), so treat this as a direction, not a promise.</p>';
+
+  return UI.card('Cash flow forecast', body, { cls: 's12', actions: seg });
+}
+
 function monthReviewHTML(mk) {
   const r = monthReview(mk);
   if (!r.count && !r.cur.income) return '';
@@ -2019,6 +2226,7 @@ const ui = {
   theme: Prefs.get('theme', 'system'),
   txSort: Prefs.get('txSort', 'date-desc'),
   animateIn: true,
+  forecastDays: Number(Prefs.get('forecastDays', '60')) || 60,
   txSel: new Set(),
   firmTab: 'overview',
 };
@@ -2378,6 +2586,7 @@ ACT['close-nav'] = () => document.body.classList.remove('nav-open');
 ACT.privacy = () => togglePrivacy();
 ACT['cf-range'] = (el) => { ui.cashflowMonths = Number(el.dataset.months) || 6; Prefs.set('cashflowMonths', String(ui.cashflowMonths)); render(); };
 ACT['pace-range'] = (el) => { ui.paceRange = el.dataset.range || 'month'; Prefs.set('paceRange', ui.paceRange); render(); };
+ACT['fc-range'] = (el) => { ui.forecastDays = Number(el.dataset.days) || 60; Prefs.set('forecastDays', String(ui.forecastDays)); render(); };
 ACT.noop = () => {};
 ACT.month = (el) => { const d = Number(el.dataset.d); ui.month = d === 0 ? curMonth() : addMonths(ui.month, d); render(); };
 ACT.go = (el) => go(el.dataset.view);
@@ -2738,7 +2947,7 @@ VIEWS.dashboard = {
     const pmItems = [...byPm.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6).map(([id, v]) => { const pm = pmOf(id); return { label: pm ? pm.name : 'Not specified', value: v, color: pm ? colorVar(pm.color) : 'var(--muted)', tip: [tipRow('Spent', money(v)), ...(pm && pm.last4 ? [tipRow('Card', '•••• ' + pm.last4)] : [])] }; });
     const pmCard = UI.card('By payment method', hbars(pmItems), { sub: monthLabel(mk), cls: 's4', actions: '<button class="btn sm ghost" data-act="go" data-view="cards">Cards</button>' });
 
-    return `${banner}${stats}<div class="grid">${needsReviewHTML('s12')}${monthReviewHTML(mk)}${driftHTML()}${cashflow}${hero}${askCardHTML('s8')}${quickImportHTML(aiReady() ? 's4' : 's12')}${pace}${cats}${bills}${recentCard}${pmCard}</div>`;
+    return `${banner}${stats}<div class="grid">${needsReviewHTML('s12')}${forecastHTML()}${monthReviewHTML(mk)}${driftHTML()}${cashflow}${hero}${askCardHTML('s8')}${quickImportHTML(aiReady() ? 's4' : 's12')}${pace}${cats}${bills}${recentCard}${pmCard}</div>`;
   },
 };
 function txListItem(x) {
@@ -2944,6 +3153,7 @@ VIEWS.recurring = {
       ${UI.stat('Recurring income', amt(inc), { sub: 'Per month' })}
     </div>
     ${due.length ? `<div class="banner accent">${icon('alert')}<div class="grow"><b>${plural(due.length, 'item')} due now.</b> <span class="text-2">Posting records the transaction and schedules the next one.</span></div><button class="btn sm primary" data-act="rec-post-all">Post all due</button></div>` : ''}
+    ${billsCalendarHTML(ui.month)}
     <section class="card flush"><header class="card-h" style="padding:16px 18px 6px"><div><h3>All recurring</h3></div><div class="card-actions"><button class="btn sm" data-act="rec-detect">${icon('refresh')}Find from banks</button><button class="btn sm" data-act="rec-add">${icon('plus')}Add</button></div></header>
     <div class="table-wrap"><table class="table"><thead><tr><th>Name</th><th class="hide-sm">Frequency</th><th>Next</th><th class="hide-sm">Business</th><th class="num">Amount</th><th class="num hide-md">Monthly</th><th></th></tr></thead><tbody>${items.map(row).join('')}</tbody></table></div></section>`;
   },
