@@ -1266,7 +1266,7 @@ function defaultState() {
     schema: SCHEMA,
     createdAt: new Date().toISOString(),
     settings: {
-      currency: 'USD', idleHideMin: 0, taxPct: 25, lastBackupAt: null, lastPm: '',
+      currency: 'USD', idleHideMin: 0, taxPct: 25, incomeDefault: 'Trading payouts', lastBackupAt: null, lastPm: '',
       mileageRates: [
         { id: uid(), from: '2025-01-01', rate: 70 },
         { id: uid(), from: '2026-01-01', rate: 72.5 },
@@ -4429,8 +4429,12 @@ VIEWS.import = {
 // off your own credit card, taking out a loan) — resolveItem() already
 // treats type:'transfer' as uncategorized-by-design.
 const TRANSFER = Symbol('transfer');
+// Income from self-employment. Plaid cannot tell a trading payout from a sales
+// commission — both arrive as contractor income — so the account says which it
+// is rather than the code guessing on everyone's behalf.
+const WORK_INCOME = Symbol('work-income');
 const PFC_MAP = {
-  INCOME_CONTRACTOR: 'Commissions', INCOME_GIG_ECONOMY: 'Commissions',
+  INCOME_CONTRACTOR: WORK_INCOME, INCOME_GIG_ECONOMY: WORK_INCOME,
   INCOME_DIVIDENDS: 'Interest & dividends', INCOME_INTEREST_EARNED: 'Interest & dividends',
   INCOME_SALARY: 'Paycheck', INCOME_TAX_REFUND: 'Refunds',
   INCOME_CHILD_SUPPORT: 'Other income', INCOME_LONG_TERM_DISABILITY: 'Other income',
@@ -4509,6 +4513,7 @@ function categorizeFromPFC(pfc) {
   if (!detailed) return {};
   if (PFC_MAP[detailed] === TRANSFER || PFC_TRANSFER_PREFIXES.some((p) => detailed.startsWith(p))) return { type: 'transfer' };
   const cat = PFC_MAP[detailed];
+  if (cat === WORK_INCOME) return { category: S.settings.incomeDefault || 'Trading payouts' };
   return cat ? { category: cat } : {};
 }
 
@@ -5386,6 +5391,7 @@ VIEWS.settings = {
     const appearance = UI.card('Preferences', `
       <div class="set-row"><div><div class="sr-t">Currency</div></div>${sel('set-currency', st.currency, [['USD', 'USD $'], ['CAD', 'CAD $'], ['EUR', 'EUR €'], ['GBP', 'GBP £'], ['AUD', 'AUD $'], ['MXN', 'MXN $'], ['INR', 'INR ₹'], ['PKR', 'PKR ₨']])}</div>
       <div class="set-row"><div><div class="sr-t">Tax set-aside rate</div><div class="sr-d">Used for the "set aside" estimates. Not a tax calculation.</div></div><div class="input-wrap" style="width:96px;flex:none"><input class="input" id="set-taxpct" data-change="set-taxpct" inputmode="decimal" value="${esc(st.taxPct)}" style="padding-right:28px;text-align:right" aria-label="Tax set-aside percent"><span class="suffix">%</span></div></div>
+      <div class="set-row"><div><div class="sr-t">Self-employed income lands in</div><div class="sr-d">Banks report trading payouts and sales commissions the same way, so pick which one they are for you.</div></div>${sel('set-incomedef', st.incomeDefault || 'Trading payouts', catsOfKind('income').map((c) => [c.name, c.name]))}</div>
       <div class="set-row"><div><div class="sr-t">Theme</div><div class="sr-d">Applies to Bank Sync as well. Stored on this device.</div></div>${sel('set-theme', ui.theme, [['system', 'Follow system'], ['light', 'Light'], ['blue', 'Light blue'], ['dark', 'Dark']])}</div>
       <div class="set-row"><div><div class="sr-t">Row density</div><div class="sr-d">Compact fits more on screen. Useful once a table is long enough to scroll.</div></div><button class="btn sm" data-act="density">${ui.compact ? 'Comfortable' : 'Compact'}</button></div>`);
     const chat = UI.card('Import from any Claude chat', `
@@ -5428,6 +5434,7 @@ CHG['set-theme'] = (el) => { applyTheme(el.value); toast(THEME_LABEL[el.value] |
 
 CHG['set-privacy'] = () => togglePrivacy();
 CHG['set-currency'] = (el) => { fmtCache.clear(); commit(() => { S.settings.currency = el.value; }, 'Currency updated'); };
+CHG['set-incomedef'] = (el) => commit(() => { S.settings.incomeDefault = el.value; }, 'Self-employed income now lands in ' + el.value);
 CHG['set-taxpct'] = (el) => { const v = parseFloat(el.value); if (!(v >= 0 && v <= 60)) { toast('Use a percentage between 0 and 60', 'err'); el.value = S.settings.taxPct; return; } commit(() => { S.settings.taxPct = Math.round(v * 10) / 10; }, 'Set-aside rate saved'); };
 
 /* ---------- Backups ---------- */
