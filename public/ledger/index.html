@@ -615,6 +615,30 @@ body.compact .sub { display: none; }
 .progress.sm { height: 5px; }
 .card.goal.click { cursor: pointer; }
 
+/* Count on the left, control in the middle, nothing on the right — the empty
+   third column is what keeps the button centred on the card rather than
+   drifting toward the count. */
+.more-bar { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center;
+  gap: 10px; margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); }
+.more-bar > :last-child { justify-self: end; }
+.more-bar > :nth-child(2) { justify-self: center; }
+
+/* ============ Filters ============ */
+.filter-panel { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px;
+  background: var(--surface); border: 1px solid var(--card-border); border-radius: var(--radius-sm);
+  padding: 14px 16px; margin: -4px 0 12px; animation: swapIn var(--dur-2) var(--ease-out); }
+.filter-panel .field { margin: 0; }
+.chip-list.filters-on { margin: -4px 0 14px; display: flex; flex-wrap: wrap; gap: 8px; }
+.chip-list.filters-on .chip { display: inline-flex; align-items: center; gap: 6px; }
+.chip.ghost { background: none; border: 1px dashed var(--line-2); color: var(--muted); }
+.btn .count { display: inline-grid; place-items: center; min-width: 18px; height: 18px; padding: 0 5px;
+  border-radius: 999px; background: var(--accent-ink); color: var(--accent); font-size: 11px;
+  font-weight: 700; line-height: 1; }
+.btn:not(.primary) .count { background: var(--accent); color: var(--accent-ink); }
+@media (max-width: 640px) {
+  .filter-panel { grid-template-columns: 1fr 1fr; }
+}
+
 /* ============ Motion ============
    Applied on navigation only, never on every re-render. Re-animating cards
    each time a filter changes is the single fastest way to make an interface
@@ -1805,6 +1829,10 @@ function needsReview() {
   const add = (t, why, hint) => { if (seen.has(t.id)) return; seen.add(t.id); out.push({ t, why, hint }); };
 
   for (const t of sortTx(S.transactions)) {
+    // Explicitly marked as fine by the person. Every reason here is a
+    // judgement call, so there has to be a way to disagree with one for good
+    // rather than being nagged about it forever.
+    if (t.reviewed) continue;
     // A transfer carrying a real merchant name usually isn't an internal
     // move between your own accounts — and a transfer counts toward nothing,
     // so a misfiled payout or fee vanishes from every total.
@@ -1995,7 +2023,7 @@ function monthReviewHTML(mk) {
 function driftHTML() {
   const drift = recurringDrift();
   if (!drift.length) return '';
-  const rows = drift.slice(0, 6).map(({ r, latest, delta }) => {
+  const rows = drift.slice(0, moreLimit('drift', 6, drift.length)).map(({ r, latest, delta }) => {
     const up = delta > 0;
     return '<div class="list-item click" data-act="rec-edit" data-id="' + r.id + '">'
       + '<div class="ico-tile" style="--dot:' + (up ? 'var(--warn)' : 'var(--pos)') + '">' + icon(up ? 'trend' : 'check') + '</div>'
@@ -2006,22 +2034,21 @@ function driftHTML() {
   }).join('');
   return UI.card('Price changes',
     '<p class="text-2" style="margin-bottom:10px">These bills are being charged a different amount than the schedule says. Open one to update it.</p>'
-    + '<div class="list">' + rows + '</div>',
+    + '<div class="list">' + rows + '</div>' + moreBar('drift', drift.length - Math.min(drift.length, moreLimit('drift', 6, drift.length)), drift.length),
     { sub: plural(drift.length, 'bill'), cls: 's6' });
 }
 
 function needsReviewHTML(cls) {
   const items = needsReview();
   if (!items.length) return '';
-  const shown = items.slice(0, 8);
+  const shown = items.slice(0, moreLimit('review', 8, items.length));
   const rows = shown.map(({ t, why, hint }) => `<div class="list-item click" data-act="tx-edit" data-id="${t.id}">
     <div class="ico-tile" style="--dot:var(--warn)">${icon('alert')}</div>
     <div class="li-main"><div class="li-title">${esc(t.desc)}</div><div class="li-sub wrap">${esc(fmtDate(t.date, { year: true }))} · ${esc(why)} — ${esc(hint)}</div></div>
     <div class="li-amt amt">${esc(money(t.amount))}</div>
+    <button class="btn ghost icon-btn sm" data-act="review-ok" data-id="${t.id}" title="This one is fine" aria-label="Mark as fine">${icon('check')}</button>
   </div>`).join('');
-  const more = items.length > shown.length
-    ? `<p class="muted small" style="margin-top:10px">${items.length - shown.length} more not shown.</p>`
-    : '';
+  const more = moreBar('review', items.length - shown.length, items.length);
   return UI.card('Needs Review', `<p class="text-2" style="margin-bottom:10px">In your books already, but ambiguous enough that totals built on them could be off. Click one to sort it out.</p><div class="list">${rows}</div>${more}`,
     { sub: `${items.length} to check`, cls: cls || 's12' });
 }
@@ -2171,12 +2198,12 @@ function propFirmReviewHTML() {
       { cls: 's12' }));
   }
   if (candidates.length) {
-    const shown = candidates.slice(0, 15);
+    const shown = candidates.slice(0, moreLimit('firmCandidates', 15, candidates.length));
     const rows = shown.map(({ t, why }) => `<div class="list-item click" data-act="tx-edit" data-id="${t.id}">
       <div class="li-main"><div class="li-title">${esc(t.desc)}</div><div class="li-sub">${esc(fmtDate(t.date, { year: true }))} · ${esc(t.type)} · ${esc(why)}</div></div>
       <span class="amt ${t.type === 'income' ? 'pos' : ''}">${esc(money(t.amount))}</span>
     </div>`).join('');
-    cards.push(UI.card('Possible prop firm activity', `<p class="text-2" style="margin-bottom:10px">Not attributed to a firm, so not in the totals above — either they mention trading, or they're money in from something calling itself a company, which is the shape a payout takes. Plenty will be unrelated, so nothing here is counted until you say so. Click one to set its business and firm.</p><div class="list">${rows}</div>${candidates.length > shown.length ? `<p class="muted small" style="margin-top:10px">${candidates.length - shown.length} more not shown.</p>` : ''}`, { cls: 's12' }));
+    cards.push(UI.card('Possible prop firm activity', `<p class="text-2" style="margin-bottom:10px">Not attributed to a firm, so not in the totals above — either they mention trading, or they're money in from something calling itself a company, which is the shape a payout takes. Plenty will be unrelated, so nothing here is counted until you say so. Click one to set its business and firm.</p><div class="list">${rows}</div>${moreBar('firmCandidates', candidates.length - shown.length, candidates.length)}`, { cls: 's12' }));
   }
   const note = coverage ? `<p class="note" style="margin-top:12px">${icon('info')}<span>${coverage}</span></p>` : '';
   return `<div class="grid">${cards.join('')}</div>${note}`;
@@ -2446,6 +2473,7 @@ const ui = {
   paceRange: Prefs.get('paceRange', 'month'),
   theme: Prefs.get('theme', 'system'),
   motion: Prefs.get('motion', 'system'),
+  txFilters: Prefs.get('txFilters', '0') === '1',
   txSort: Prefs.get('txSort', 'date-desc'),
   animateIn: true,
   swapIn: false,
@@ -3303,22 +3331,85 @@ VIEWS.transactions = {
     if (!S.transactions.length) return `<div class="card">${UI.empty('list', 'No transactions yet', 'Press <span class="kbd">N</span> to add one, or import a CSV export from your bank or card.', '<button class="btn primary sm" data-act="tx-add">New transaction</button><button class="btn sm" data-act="csv-import">Import CSV</button><button class="btn sm" data-act="sample">Load sample data</button>')}</div>`;
     const f = ui.tx;
     const sel = (key, opts) => `<select class="select" data-change="txf" data-key="${key}" aria-label="${key}">${opts.map(([v, l]) => `<option value="${esc(v)}" ${f[key] === v ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>`;
+
+    /* Seven controls of equal weight, all permanently on screen, is a wall
+       rather than a toolbar. Two things are used constantly — searching and
+       choosing a period — so those stay out. The rest go behind one button
+       that carries a count, and whatever is switched on comes back as a chip
+       you can dismiss. The filters you are using stay visible; the ones you
+       are not stop taking up room. */
+    const catOpts = [['', 'All categories'], ...S.categories.map((c) => [c.id, c.name])];
+    const pmOpts = [['', 'All cards & accounts'], ['_none', 'Not specified'], ...S.paymentMethods.map((p) => [p.id, p.name + (p.last4 ? ' ··' + p.last4 : '')])];
+    const bizOpts = [['', 'All'], ['business', 'Business only'], ['personal', 'Personal only'], ...S.businesses.map((b) => [b.id, b.name])];
+    const typeOpts = [['', 'All types'], ['expense', 'Expenses'], ['income', 'Income'], ['transfer', 'Transfers']];
+    const labelOf = (opts, v) => (opts.find(([val]) => String(val) === String(v)) || [])[1] || '';
+
+    // Only non-default choices count as "filtering".
+    const active = [
+      ['type', labelOf(typeOpts, f.type)],
+      ['cat', labelOf(catOpts, f.cat)],
+      ['pm', labelOf(pmOpts, f.pm)],
+      ['biz', labelOf(bizOpts, f.biz)],
+    ].filter(([key]) => f[key]);
+
+    const chips = active.map(([key, label]) =>
+      `<button class="chip" data-act="txf-clear" data-key="${key}" title="Remove this filter">${esc(label)}${icon('x')}</button>`).join('')
+      + (active.length > 1 ? `<button class="chip ghost" data-act="tx-clear">Clear all</button>` : '');
+
+    const panel = ui.txFilters
+      ? `<div class="filter-panel">
+          ${UI.field('Type', sel('type', typeOpts))}
+          ${UI.field('Category', sel('cat', catOpts))}
+          ${UI.field('Card or account', sel('pm', pmOpts))}
+          ${UI.field('Business', sel('biz', bizOpts))}
+        </div>`
+      : '';
+
     return `<div class="toolbar">
       <div class="search">${icon('search')}<input id="tx-q" class="input" type="search" placeholder="Search description, card, firm, amount…  ( / )" value="${esc(f.q)}" data-input="tx-q" aria-label="Search transactions"></div>
       ${sel('scope', [['month', 'This month'], ['year', 'This year'], ['all', 'All time']])}
-      ${sel('type', [['', 'All types'], ['expense', 'Expenses'], ['income', 'Income'], ['transfer', 'Transfers']])}
-      ${sel('cat', [['', 'All categories'], ...S.categories.map((c) => [c.id, c.name])])}
-      ${sel('pm', [['', 'All cards & accounts'], ['_none', 'Not specified'], ...S.paymentMethods.map((p) => [p.id, p.name + (p.last4 ? ' ··' + p.last4 : '')])])}
-      ${sel('biz', [['', 'All'], ['business', 'Business only'], ['personal', 'Personal only'], ...S.businesses.map((b) => [b.id, b.name])])}
       <select class="select" data-change="txsort" aria-label="Sort transactions">${TX_SORTS.map(([v, label]) => `<option value="${v}" ${ui.txSort === v ? 'selected' : ''}>${esc(label)}</option>`).join('')}</select>
-    </div><div id="tx-results">${txResultsHTML()}</div>`;
+      <button class="btn ${ui.txFilters || active.length ? 'primary' : ''}" data-act="txf-toggle" aria-expanded="${ui.txFilters ? 'true' : 'false'}">${icon('sliders')}Filters${active.length ? ` <span class="count">${active.length}</span>` : ''}</button>
+    </div>
+    ${panel}
+    ${active.length ? `<div class="chip-list filters-on">${chips}</div>` : ''}
+    <div id="tx-results">${txResultsHTML()}</div>`;
   },
 };
 const refreshTx = () => { const r = $('#tx-results'); if (r) r.innerHTML = txResultsHTML(); };
 INP['tx-q'] = debounce((el) => { ui.tx.q = el.value; ui.txLimit = 150; refreshTx(); }, 120);
 CHG.txsort = (el) => { ui.txSort = el.value; Prefs.set('txSort', el.value); ui.txLimit = 150; refreshTx(); };
-CHG.txf = (el) => { ui.tx[el.dataset.key] = el.value; ui.txLimit = 150; refreshTx(); };
+// A full render, not just the results: the active-filter chips and the count
+// on the Filters button live outside #tx-results and would otherwise go stale.
+CHG.txf = (el) => { ui.tx[el.dataset.key] = el.value; ui.txLimit = 150; render(); };
 ACT['tx-more'] = () => { ui.txLimit += 150; refreshTx(); };
+ACT['txf-toggle'] = () => { ui.txFilters = !ui.txFilters; Prefs.set('txFilters', ui.txFilters ? '1' : '0'); render(); };
+ACT['txf-clear'] = (el) => { ui.tx[el.dataset.key] = ''; ui.txLimit = 150; render(); };
+/* A truncated list should say how much it is holding back and offer to show
+   it, rather than stating a number and leaving you stuck. The count sits left,
+   the control sits centred, and expanding is remembered only for the session —
+   a long list should go back to being short next time you arrive. */
+const expanded = {};
+function moreBar(key, remaining, total) {
+  if (expanded[key]) {
+    return `<div class="more-bar"><span class="muted small">Showing all ${total}</span>`
+      + `<button class="btn sm ghost" data-act="show-less" data-key="${esc(key)}">Show less</button><span></span></div>`;
+  }
+  if (!remaining) return '';
+  return `<div class="more-bar"><span class="muted small">${remaining} left</span>`
+    + `<button class="btn sm ghost" data-act="show-more" data-key="${esc(key)}">More</button><span></span></div>`;
+}
+const moreLimit = (key, base, total) => (expanded[key] ? total : base);
+ACT['review-ok'] = (el) => {
+  const t = byId(S.transactions, el.dataset.id);
+  if (!t) return;
+  commit(() => { t.reviewed = true; }, `${t.desc} marked as fine`, {
+    label: 'Undo', fn: () => commit(() => { delete t.reviewed; }, 'Back in Needs Review'),
+  });
+};
+ACT['show-more'] = (el) => { expanded[el.dataset.key] = true; render(); };
+ACT['show-less'] = (el) => { delete expanded[el.dataset.key]; render(); };
+
 ACT['tx-clear'] = () => { ui.tx = { q: '', scope: 'all', type: '', cat: '', pm: '', biz: '' }; render(); };
 ACT['tx-export'] = async () => {
   const list = txFiltered();
