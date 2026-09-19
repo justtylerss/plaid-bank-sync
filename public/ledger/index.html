@@ -2794,27 +2794,57 @@ ACT.go = (el) => go(el.dataset.view);
 /* =========================================================
    Shared business-fields block (transactions, recurring, rules)
    ========================================================= */
+// Firms you have used, plus every firm the app recognises, plus an explicit
+// way out. A select rather than free text because the name has to match
+// exactly for the ROI tracker to group it — "Other" is where anything not on
+// the list goes, and it reveals a text box.
+// The firm lives in two controls: a select for the known names and a text box
+// that only appears for "Other…". These two functions are the single place
+// that knows which one holds the value.
+function firmFromForm(fd) {
+  const picked = String(fd.get('firmSel') || '');
+  if (picked === '__other') return String(fd.get('firm') || '').trim().slice(0, 60);
+  return picked.trim().slice(0, 60);
+}
+function setFirmFields(form, firm) {
+  const sel = form.elements.firmSel;
+  const other = form.querySelector('[data-firm-other]');
+  if (!sel) return;
+  const known = [...sel.options].some((o) => o.value === firm && o.value !== '__other');
+  sel.value = firm ? (known ? firm : '__other') : '';
+  if (other) {
+    other.value = firm || '';
+    other.hidden = sel.value !== '__other';
+  }
+}
+
+function firmOptions(current) {
+  const used = S.transactions.filter((t) => t.biz && t.biz.firm).map((t) => t.biz.firm.trim());
+  const known = PROP_FIRM_PATTERNS.map(([n]) => n);
+  const all = [...new Set([...used, ...known])].filter(Boolean).sort((a, b) => a.localeCompare(b));
+  const isOther = !!current && !all.includes(current);
+  const opts = [`<option value="">No firm</option>`]
+    .concat(all.map((n) => `<option value="${esc(n)}" ${n === current ? 'selected' : ''}>${esc(n)}</option>`))
+    .concat([`<option value="__other" ${isOther ? 'selected' : ''}>Other…</option>`]);
+  return opts.join('');
+}
+
 function bizBoxHTML(biz, type) {
   const b = biz || {};
   const bizId = b.b || (S.businesses[0] && S.businesses[0].id) || '';
   const cats = bizCatsFor(bizId);
-  // Firms you've already used, plus every firm the app can recognise, so the
-  // dropdown offers the full list rather than only your own history. Still a
-  // free-text field underneath — a firm nobody has heard of can just be typed.
-  const usedFirms = S.transactions.filter((t) => t.biz && t.biz.firm).map((t) => t.biz.firm.trim());
-  const firms = [...new Set([...usedFirms, ...PROP_FIRM_PATTERNS.map(([n]) => n)])].filter(Boolean).sort((a, b) => a.localeCompare(b));
   return `<fieldset class="biz-box" data-biz-box>
     <label class="switch"><input type="checkbox" name="isBiz" ${biz ? 'checked' : ''}><span data-biz-label>${type === 'income' ? 'Business income (payout, commission)' : 'Business expense · tax write-off'}</span></label>
     <div class="form-grid" data-biz-fields ${biz ? '' : 'hidden'}>
       ${UI.field('Business', `<select class="select" name="bizB">${UI.options(S.businesses, bizId)}</select>`)}
       ${UI.field('Write-off category', `<select class="select" name="bizC">${UI.options(cats, b.c || '', { empty: 'Choose category' })}</select>`, { cls: 'f-exp' })}
       ${UI.field('Business use %', `<input class="input" type="number" name="bizPct" min="1" max="100" step="1" value="${esc(b.pct ?? 100)}">`, { cls: 'f-exp', hint: 'Mixed-use items (phone, internet) are often partly deductible.' })}
-      ${UI.field('Prop firm', `<input class="input" name="firm" list="dl-firm" maxlength="60" value="${esc(b.firm || '')}" placeholder="e.g. Topstep, Apex">`, { cls: 'f-firm', hint: 'Powers the prop firm ROI tracker.' })}
-      <datalist id="dl-firm">${firms.map((f) => `<option value="${esc(f)}">`).join('')}</datalist>
+      ${UI.field('Prop firm', `<select class="select" name="firmSel" data-firm-sel>${firmOptions(b.firm || '')}</select>
+        <input class="input" name="firm" data-firm-other maxlength="60" value="${esc(b.firm || '')}" placeholder="Firm name" style="margin-top:8px" hidden>`, { cls: 'f-firm', hint: 'Powers the prop firm ROI tracker.' })}
     </div>
   </fieldset>`;
 }
-function bizSync(form, type) {
+function bizSync(form, type, catId) {
   const box = form.querySelector('[data-biz-box]');
   if (!box) return;
   box.hidden = type === 'transfer';
@@ -2824,7 +2854,20 @@ function bizSync(form, type) {
   const bizId = form.elements.bizB.value;
   const b = bizOf(bizId);
   $$('.f-exp', box).forEach((el) => { el.hidden = type !== 'expense'; });
-  $$('.f-firm', box).forEach((el) => { el.hidden = !(b && b.kind === 'trading'); });
+  // The firm only matters when the transaction is actually prop firm
+  // activity, so it follows the chosen category rather than sitting in the
+  // business box for every expense.
+  const catName = (catOf(catId) || {}).name || '';
+  const wantsFirm = /^prop firm$/i.test(catName) || /^trading payouts$/i.test(catName);
+  $$('.f-firm', box).forEach((el) => { el.hidden = !wantsFirm; });
+  const fSel = form.elements.firmSel;
+  const fOther = box.querySelector('[data-firm-other]');
+  if (fSel && fOther) {
+    const other = fSel.value === '__other';
+    fOther.hidden = !other;
+    // The text box is the value when Other is chosen; otherwise the select is.
+    if (!other) fOther.value = fSel.value;
+  }
   const sel = form.elements.bizC;
   const cur = sel.value;
   const cats = bizCatsFor(bizId);
@@ -2834,12 +2877,12 @@ function bizFill(form, biz, type) {
   form.elements.isBiz.checked = !!biz;
   if (biz) {
     if (bizOf(biz.b)) form.elements.bizB.value = biz.b;
-    bizSync(form, type);
+    bizSync(form, type, form.elements.cat ? form.elements.cat.value : '');
     if (biz.c) form.elements.bizC.value = biz.c;
     form.elements.bizPct.value = biz.pct ?? 100;
-    form.elements.firm.value = biz.firm || '';
+    setFirmFields(form, biz.firm || '');
   }
-  bizSync(form, type);
+  bizSync(form, type, form.elements.cat ? form.elements.cat.value : '');
 }
 function readBiz(fd, type) {
   if (type === 'transfer' || !fd.get('isBiz')) return null;
@@ -2849,7 +2892,7 @@ function readBiz(fd, type) {
   const biz = {
     b, c: type === 'expense' ? String(fd.get('bizC') || '') : '',
     pct: type === 'expense' ? clamp(Math.round(Number(fd.get('bizPct')) || 100), 1, 100) : 100,
-    firm: kind === 'trading' ? String(fd.get('firm') || '').trim().slice(0, 60) : '',
+    firm: firmFromForm(fd),
     rnote: type === 'expense' ? String(fd.get('rnote') || '').trim().slice(0, 120) : '',
   };
   if (type === 'expense' && !biz.c) throw new Error('Choose a write-off category');
@@ -2904,7 +2947,7 @@ function txModal(tx = null, preset = {}, opts = {}) {
           const cur = el.cat.value; const list = catsOfKind(type);
           el.cat.innerHTML = UI.options(list, list.some((c) => c.id === cur) ? cur : '', { empty: 'Choose category' });
         }
-        bizSync(form, type);
+        bizSync(form, type, el.cat.value);
       };
       const note = (msg) => { const n = form.querySelector('[data-autofill]'); n.hidden = !msg; n.querySelector('span').textContent = msg || ''; };
       const touched = new Set();
@@ -2932,6 +2975,7 @@ function txModal(tx = null, preset = {}, opts = {}) {
       form.addEventListener('change', (e) => {
         const n = e.target.name;
         if (e.isTrusted && ['type', 'cat', 'pm', 'isBiz', 'bizB', 'bizC'].includes(n)) touched.add(n);
+        if (['cat', 'isBiz', 'bizB', 'firmSel'].includes(n)) bizSync(form, typeNow(), el.cat.value);
         if (n === 'type' || n === 'isBiz' || n === 'bizB') sync();
         if (n === 'bizPct') pctTouched = true;
         if (n === 'bizC' && !pctTouched) { const bc = bizCatOf(e.target.value); if (bc) el.bizPct.value = bc.pct; }
@@ -3377,7 +3421,7 @@ function recModal(r = null) {
     onOpen(form) {
       const type = () => form.querySelector('[name=type]:checked').value;
       const sync = () => { const cur = form.elements.cat.value; const l = catsOfKind(type()); form.elements.cat.innerHTML = UI.options(l, l.some((c) => c.id === cur) ? cur : '', { empty: 'Choose category' }); bizSync(form, type()); };
-      form.addEventListener('change', (e) => { if (['type', 'isBiz', 'bizB'].includes(e.target.name)) sync(); if (e.target.name === 'bizC') { const bc = bizCatOf(e.target.value); if (bc) form.elements.bizPct.value = bc.pct; } });
+      form.addEventListener('change', (e) => { if (['type', 'isBiz', 'bizB', 'cat', 'firmSel'].includes(e.target.name)) sync(); if (e.target.name === 'bizC') { const bc = bizCatOf(e.target.value); if (bc) form.elements.bizPct.value = bc.pct; } });
       sync();
       if (x.biz && x.biz.c) form.elements.bizC.value = x.biz.c;
     },
@@ -5638,8 +5682,8 @@ function ruleModal(r = null) {
       </div>${bizBoxHTML(x.biz, kind)}`,
     onOpen(form) {
       const k = () => (catOf(form.elements.cat.value) || { kind: 'expense' }).kind;
-      form.addEventListener('change', (e) => { if (['cat', 'isBiz', 'bizB'].includes(e.target.name)) bizSync(form, k()); });
-      bizSync(form, k());
+      form.addEventListener('change', (e) => { if (['cat', 'isBiz', 'bizB', 'firmSel'].includes(e.target.name)) bizSync(form, k(), form.elements.cat.value); });
+      bizSync(form, k(), form.elements.cat.value);
       if (x.biz && x.biz.c) form.elements.bizC.value = x.biz.c;
     },
     onSubmit(fd) {
