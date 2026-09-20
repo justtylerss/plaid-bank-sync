@@ -1603,7 +1603,7 @@ function defaultState() {
     schema: SCHEMA,
     createdAt: new Date().toISOString(),
     settings: {
-      currency: 'USD', idleHideMin: 0, taxPct: 25, incomeDefault: 'Trading payouts', lastBackupAt: null, lastPm: '',
+      currency: 'USD', idleHideMin: 0, hiddenViews: [], taxPct: 25, incomeDefault: 'Trading payouts', lastBackupAt: null, lastPm: '',
       mileageRates: [
         { id: uid(), from: '2025-01-01', rate: 70 },
         { id: uid(), from: '2026-01-01', rate: 72.5 },
@@ -2889,6 +2889,18 @@ const ui = {
 };
 const TAB_ID = uid();
 
+/* Screens you can put away. Dashboard, Transactions, Import and Settings are
+   not on the list — an app you cannot navigate is not decluttered. Hiding is
+   per account and only removes the nav entry; the screen still works if you
+   reach it by URL, and every one of them stays on by default so nobody's
+   sidebar changes until they say so. */
+const OPTIONAL_VIEWS = [
+  ['budgets', 'Budgets'], ['recurring', 'Bills & Subs'], ['cards', 'Cards & Accounts'],
+  ['reports', 'Reports'], ['business', 'Write-offs & Taxes'], ['propfirms', 'Prop Firms'],
+  ['mileage', 'Mileage Log'], ['investments', 'Investments'], ['networth', 'Net Worth'],
+  ['goals', 'Goals'],
+];
+const hiddenViews = () => new Set(S.settings.hiddenViews || []);
 const NAV = [
   ['Overview', [['dashboard', 'Dashboard', 'dashboard'], ['import', 'Import & Inbox', 'inbox']]],
   ['Money', [['transactions', 'Transactions', 'list'], ['budgets', 'Budgets', 'pie'], ['recurring', 'Bills & Subs', 'repeat'], ['cards', 'Cards & Accounts', 'card'], ['reports', 'Reports', 'file']]],
@@ -2966,7 +2978,10 @@ function shellHTML() {
 function sidebarHTML() {
   const due = upcoming(0).length;
   const counts = { recurring: due, import: S.inbox.length };
-  const nav = NAV.map(([label, items]) => `<div class="nav-group"><div class="nav-label">${esc(label)}</div><nav class="nav">${items.map(([id, t, ic]) => `<a href="#/${id}" class="${ui.view === id ? 'active' : ''}" ${ui.view === id ? 'aria-current="page"' : ''}>${icon(ic)}<span>${esc(t)}</span>${counts[id] ? `<span class="count" title="Due now">${counts[id]}</span>` : ''}</a>`).join('')}</nav></div>`).join('');
+  const hid = hiddenViews();
+  const nav = NAV.map(([label, items]) => [label, items.filter(([id]) => !hid.has(id))])
+    .filter(([, items]) => items.length)
+    .map(([label, items]) => `<div class="nav-group"><div class="nav-label">${esc(label)}</div><nav class="nav">${items.map(([id, t, ic]) => `<a href="#/${id}" class="${ui.view === id ? 'active' : ''}" ${ui.view === id ? 'aria-current="page"' : ''}>${icon(ic)}<span>${esc(t)}</span>${counts[id] ? `<span class="count" title="Due now">${counts[id]}</span>` : ''}</a>`).join('')}</nav></div>`).join('');
   return `<div class="brand"><span class="brand-mark">${BRAND_SVG}</span><span>Ledger Vault<small>Cloud</small></span><button class="rail-lock" data-act="rail-lock" aria-pressed="${ui.railLock ? 'true' : 'false'}" title="${ui.railLock ? 'Unpin the sidebar' : 'Keep the sidebar open'}">${icon('lock')}</button></div>${nav}
     <div class="side-foot">
       <nav class="nav">
@@ -6412,6 +6427,10 @@ VIEWS.settings = {
       <div class="set-row"><div><div class="sr-t">Restore, or move over from v1</div><div class="sr-d">A Cloud backup (.json) or a Ledger Vault v1 backup (.lvault, needs its password).</div></div><button class="btn sm" data-act="backup-restore">${icon('upload')}Restore</button></div>
       <div class="set-row"><div><div class="sr-t">Export all transactions</div><div class="sr-d">CSV for spreadsheets.</div></div><button class="btn sm" data-act="export-all">${icon('download')}Export</button></div>
       <div class="set-row"><div><div class="sr-t">Start fresh</div><div class="sr-d">Delete every record in your books. This cannot be undone.</div></div><button class="btn sm danger" data-act="reset-data">Reset data</button></div>`);
+    const hid = hiddenViews();
+    const sidebar = UI.card('Sidebar', OPTIONAL_VIEWS.map(([id, name]) =>
+      `<div class="set-row"><div><div class="sr-t">${esc(name)}</div></div><label class="switch"><input type="checkbox" data-change="set-nav" data-view="${id}" ${hid.has(id) ? '' : 'checked'} aria-label="Show ${esc(name)}"></label></div>`).join(''),
+      { sub: 'Turn off what you do not use. It only leaves the sidebar \u2014 nothing is deleted, and this is yours alone.' });
     const appearance = UI.card('Preferences', `
       <div class="set-row"><div><div class="sr-t">Currency</div></div>${sel('set-currency', st.currency, [['USD', 'USD $'], ['CAD', 'CAD $'], ['EUR', 'EUR €'], ['GBP', 'GBP £'], ['AUD', 'AUD $'], ['MXN', 'MXN $'], ['INR', 'INR ₹'], ['PKR', 'PKR ₨']])}</div>
       <div class="set-row"><div><div class="sr-t">Tax set-aside rate</div><div class="sr-d">Used for the "set aside" estimates. Not a tax calculation.</div></div><div class="input-wrap" style="width:96px;flex:none"><input class="input" id="set-taxpct" data-change="set-taxpct" inputmode="decimal" value="${esc(st.taxPct)}" style="padding-right:28px;text-align:right" aria-label="Tax set-aside percent"><span class="suffix">%</span></div></div>
@@ -6436,7 +6455,7 @@ VIEWS.settings = {
     const keys = UI.card('Keyboard shortcuts', `<div class="kbd-list"><span class="kbd">N</span><span>New transaction</span><span class="kbd">/</span><span>Search transactions</span><span class="kbd">H</span><span>Hide / show amounts</span><span class="kbd">L</span><span>Lock</span><span class="kbd">← →</span><span>Previous / next month</span><span class="kbd">Esc</span><span>Close dialog</span></div>`, { cls: 's6' });
     const changelog = UI.card("What's new", `<div class="changelog">${CHANGELOG.map((g) => `<div><div class="cl-date">${esc(g.date)}</div><ul class="cl-items">${g.items.map((it) => `<li>${esc(it)}</li>`).join('')}</ul></div>`).join('')}</div>`, { cls: 's12' });
     const danger = UI.card('Danger zone', `<div class="set-row"><div><div class="sr-t">Erase vault from this browser</div><div class="sr-d">Deletes the encrypted data here. Backups you downloaded are not affected.</div></div><button class="btn sm danger solid" data-act="erase">Erase</button></div>`, { cls: 's6 danger-zone' });
-    return `<div class="set-grid">${privacy}${data}${appearance}${chat}</div><div class="grid" style="margin-top:16px">${categories}${business}${rules}${mileage}${changelog}${keys}${danger}</div>`;
+    return `<div class="set-grid">${privacy}${sidebar}${data}${appearance}${chat}</div><div class="grid" style="margin-top:16px">${categories}${business}${rules}${mileage}${changelog}${keys}${danger}</div>`;
   },
 };
 
@@ -6524,6 +6543,15 @@ CHG['set-motion'] = (el) => { applyMotion(el.value); render(); toast(motionStatu
 CHG['set-theme'] = (el) => { applyTheme(el.value); toast(THEME_LABEL[el.value] || 'Theme changed'); };
 
 CHG['set-privacy'] = () => togglePrivacy();
+CHG['set-nav'] = (el) => {
+  const id = el.dataset.view;
+  const name = (OPTIONAL_VIEWS.find(([v]) => v === id) || [, id])[1];
+  commit(() => {
+    const set = hiddenViews();
+    if (el.checked) set.delete(id); else set.add(id);
+    S.settings.hiddenViews = [...set];
+  }, el.checked ? name + ' is back in the sidebar' : name + ' hidden from your sidebar');
+};
 CHG['set-currency'] = (el) => { fmtCache.clear(); commit(() => { S.settings.currency = el.value; }, 'Currency updated'); };
 CHG['set-incomedef'] = (el) => commit(() => { S.settings.incomeDefault = el.value; }, 'Self-employed income now lands in ' + el.value);
 CHG['set-taxpct'] = (el) => { const v = parseFloat(el.value); if (!(v >= 0 && v <= 60)) { toast('Use a percentage between 0 and 60', 'err'); el.value = S.settings.taxPct; return; } commit(() => { S.settings.taxPct = Math.round(v * 10) / 10; }, 'Set-aside rate saved'); };
