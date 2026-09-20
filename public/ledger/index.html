@@ -1664,6 +1664,54 @@ const sortTx = (arr) => arr.slice().sort((a, b) => (a.date < b.date ? 1 : a.date
 const deductible = (t) => (t.type === 'expense' && t.biz ? Math.round(t.amount * clamp(Number(t.biz.pct ?? 100), 0, 100) / 100) : 0);
 const txIn = (pred) => S.transactions.filter(pred);
 const inMonth = (mk) => (t) => t.date.startsWith(mk);
+/* What changed, rather than what was budgeted. A budget has to be set up and
+   kept current; a comparison against your own past needs neither, and it
+   still works on categories you never thought to budget for.
+
+   Median of the last six complete months per category. Flagged only when the
+   month is both a large multiple of that median AND a large enough sum to be
+   worth a glance — 3x your usual on a $4 category is noise. A category with
+   no history at all is new spending, which is worth surfacing on its own.
+
+   One pass over the transactions, because this runs on every keystroke in the
+   search box. */
+const ANOM_MULT = 2;      // times the median, and
+const ANOM_MIN = 5000;    // at least this many cents above it
+function spendAnomalies(mk = curMonth()) {
+  const months = [];
+  for (let i = 6; i >= 1; i--) months.push(addMonths(mk, -i));
+  const idx = new Map(months.map((m, i) => [m, i]));
+  const hist = new Map();
+  const now = new Map();
+  const seen = new Set();
+  for (const t of S.transactions) {
+    if (t.type !== 'expense') continue;
+    const m = t.date.slice(0, 7);
+    const k = t.cat || '';
+    if (m === mk) { now.set(k, (now.get(k) || 0) + t.amount); continue; }
+    const i = idx.get(m);
+    if (i === undefined) continue;
+    seen.add(m);
+    if (!hist.has(k)) hist.set(k, new Array(months.length).fill(0));
+    hist.get(k)[i] += t.amount;
+  }
+  if (seen.size < 3) return [];   // too little history to call anything unusual
+  const med = (a) => {
+    const x = [...a].sort((p, q) => p - q);
+    const h = x.length >> 1;
+    return x.length % 2 ? x[h] : Math.round((x[h - 1] + x[h]) / 2);
+  };
+  const out = [];
+  for (const [k, v] of now) {
+    const m = med(hist.get(k) || new Array(months.length).fill(0));
+    const over = v - m;
+    if (over < ANOM_MIN) continue;
+    if (m > 0 && v < m * ANOM_MULT) continue;
+    out.push({ cat: k, now: v, median: m, over, mult: m > 0 ? v / m : null });
+  }
+  return out.sort((a, b) => b.over - a.over);
+}
+
 /* Rate, not totals. Lumpy income makes an average lie: one $4,000 payout
    month drags a mean upward and hides that the other five were thin. The
    median of complete months is the number you can plan against. The current
@@ -3755,9 +3803,9 @@ VIEWS.dashboard = {
       return `<section class="band"><h2 class="band-label">${esc(label)}</h2><div class="grid">${body}</div></section>`;
     };
     return banner + stats
-      + band('Needs you', needsReviewHTML('s12'), driftHTML())
+      + band('Needs you', needsReviewHTML('s12'), anomaliesHTML('s6'), driftHTML())
       + band('Coming up', forecastHTML(), bills, goalsCardHTML('s6'))
-      + band('This month', weekReviewHTML(), monthReviewHTML(mk), cashflow, pace, cats)
+      + band('This month', weekReviewHTML(), monthReviewHTML(mk), rateChartHTML('s7'), cashflow, pace, cats)
       + band('Where it sits', hero, pmCard, recentCard)
       + band('Add and ask', askCardHTML('s8'), quickImportHTML(aiReady() ? 's4' : 's12'));
   },
@@ -3826,6 +3874,51 @@ function txRow(t) {
 }
 /* The two questions that do not depend on which month or filter is showing:
    am I clearing more than I burn, and where does the year stand for tax. */
+function anomaliesHTML(cls = 's6') {
+  const list = spendAnomalies();
+  if (!list.length) return '';
+  const row = (a) => {
+    const c = catOf(a.cat);
+    const why = a.median
+      ? `${a.mult.toFixed(1)}× your usual ${esc(money(a.median))}`
+      : 'nothing in this category for six months';
+    return `<div class="list-item"><div class="li-main"><div class="li-title">${c ? esc(c.name) : 'Uncategorized'}</div><div class="li-sub">${why}</div></div><div class="li-amt amt">${esc(money(a.now))}</div></div>`;
+  };
+  return UI.card('Unusual this month', `<div class="list">${list.slice(0, 6).map(row).join('')}</div>`,
+    { cls, sub: 'Against the median of your last six months. Nothing to set up.' });
+}
+
+/* Twelve months of the one question that matters most here: is the gap
+   between what comes in and what goes out widening or closing. Two lines
+   rather than a net bar, because the net hides which side moved. */
+function rateChartHTML(cls = 's7') {
+  const cur = curMonth();
+  const labels = [], inc = [], exp = [];
+  for (let i = 11; i >= 0; i--) {
+    const m = addMonths(cur, -i);
+    const t = monthTotals(m);
+    labels.push(monthLabel(m, 'short'));
+    inc.push(t.income);
+    exp.push(t.expense);
+  }
+  if (!inc.some(Boolean) && !exp.some(Boolean)) return '';
+  const r = rateStats();
+  const sub = r.enough
+    ? `Typical month: <span class="amt">${esc(money(r.income))}</span> in, <span class="amt">${esc(money(r.expense))}</span> out`
+    : 'Twelve months';
+  return UI.card('Earning vs spending',
+    legend([['In', 'var(--pos)', true], ['Out', 'var(--neg)', true]])
+    + chartSlot(lineChart({
+      labels,
+      series: [
+        { name: 'Out', color: 'var(--neg)', values: exp },
+        { name: 'In', color: 'var(--pos)', values: inc, area: true },
+      ],
+      tipTitle: (i) => labels[i],
+    }), 220),
+    { cls, sub });
+}
+
 function yearLineHTML() {
   const y = curMonth().slice(0, 4);
   const r = rateStats();
@@ -3840,6 +3933,8 @@ function yearLineHTML() {
       ? `<span data-tip="No self-employment tax is owed on a year that lost money. Ask your CPA how the loss carries.">Set aside <b>nothing yet</b></span>`
       : `<span>Set aside <b class="amt">${esc(money(t.setAside))}</b> at ${esc(S.settings.taxPct)}%</span>`);
   }
+  const an = spendAnomalies();
+  if (an.length) bits.push(`<a class="linkish" href="#/dashboard" data-tip="Categories well above their six-month median this month">${an.length} unusual this month</a>`);
   bits.push(`<span class="spacer"></span><a class="linkish" href="#/business">Write-offs & Taxes</a>`);
   return bits.join('');
 }
@@ -5895,8 +5990,8 @@ function propFirmOverviewHTML(firms, fy) {
   const net = paid - spent;
   const stats = `<div class="stats">
     ${UI.stat('Paid to firms', amt(spent), { sub: 'Evals, resets, activation, data' })}
-    ${UI.stat('Payouts received', amt(paid), { sub: plural(sum(firms, (f) => f.payoutCount), 'payout') })}
-    ${UI.stat('Net', amt(net, { sign: true }, net < 0 ? 'neg' : 'pos'), { sub: spent ? `ROI ${pct(net / spent)}` : '' })}
+    ${UI.stat('Payouts received', amt(paid), { sub: `${plural(sum(firms, (f) => f.payoutCount), 'payout')}${evals ? ` · <span class="amt">${esc(money(Math.round(paid / evals)))}</span> back per eval bought` : ''} · ${firms.filter((f) => f.payouts > 0).length} of ${firms.length} firms have paid` })}
+    ${UI.stat('Net', amt(net, { sign: true }, net < 0 ? 'neg' : 'pos'), { sub: spent ? `ROI ${pct(net / spent)}${paid ? ` · <span class="amt">${esc(money(Math.round(spent / (paid / 100))))}</span> spent per $1 back` : ' · nothing back yet'}` : '' })}
     ${UI.stat('Evaluations bought', `${evals}`, { sub: `${plural(resets, 'reset')} · ${spent && evals ? `<span class="amt">${esc(money(Math.round(spent / Math.max(1, evals))))}</span> all-in per eval` : ''}` })}
   </div>`;
   const top = firms.slice().sort((a, b) => (b.spent + b.payouts) - (a.spent + a.payouts)).slice(0, 8);

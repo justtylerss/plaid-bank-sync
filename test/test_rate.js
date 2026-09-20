@@ -84,3 +84,73 @@ assert.strictEqual(t.net, 0, 'personal rows never touch the business figure');
 console.log('ok  personal excluded -> net', t.net);
 
 console.log('\nall rate/tax checks pass');
+
+// ---- spendAnomalies ----
+const anomCode = take('const ANOM_MULT = 2;') + ';this.spendAnomalies=spendAnomalies;';
+vm.runInContext(anomCode, ctx);
+
+const ex = (date, cat, amount) => ({ date, type: 'expense', amount, cat, biz: null });
+
+// six months of steady $100 dining, then $500 this month
+fresh();
+for (const m of ['2026-03', '2026-04', '2026-05', '2026-06', '2026-07', '2026-08']) ctx.S.transactions.push(ex(m + '-10', 'dining', 10000));
+ctx.S.transactions.push(ex('2026-09-02', 'dining', 50000));
+let a = ctx.spendAnomalies('2026-09');
+assert.strictEqual(a.length, 1, 'one flag');
+assert.strictEqual(a[0].median, 10000);
+assert.strictEqual(a[0].over, 40000);
+assert.strictEqual(a[0].mult, 5);
+console.log('ok  5x spike flagged   -> over', a[0].over, 'mult', a[0].mult);
+
+// same history, a mild rise: 1.5x is not unusual
+fresh();
+for (const m of ['2026-03', '2026-04', '2026-05', '2026-06', '2026-07', '2026-08']) ctx.S.transactions.push(ex(m + '-10', 'dining', 10000));
+ctx.S.transactions.push(ex('2026-09-02', 'dining', 15000));
+assert.strictEqual(ctx.spendAnomalies('2026-09').length, 0, '1.5x is not a spike');
+console.log('ok  1.5x not flagged');
+
+// big multiple but trivial money: 10x of $4 is noise
+fresh();
+for (const m of ['2026-03', '2026-04', '2026-05', '2026-06', '2026-07', '2026-08']) ctx.S.transactions.push(ex(m + '-10', 'tiny', 400));
+ctx.S.transactions.push(ex('2026-09-02', 'tiny', 4000));
+assert.strictEqual(ctx.spendAnomalies('2026-09').length, 0, '10x of $4 is below the money floor');
+console.log('ok  10x of a tiny category ignored');
+
+// a category with no history at all is new spending
+fresh();
+for (const m of ['2026-06', '2026-07', '2026-08']) ctx.S.transactions.push(ex(m + '-10', 'rent', 100000));
+ctx.S.transactions.push(ex('2026-09-02', 'brandnew', 30000));
+a = ctx.spendAnomalies('2026-09');
+assert.strictEqual(a.length, 1);
+assert.strictEqual(a[0].cat, 'brandnew');
+assert.strictEqual(a[0].median, 0);
+assert.strictEqual(a[0].mult, null, 'no multiple when there is no history');
+console.log('ok  brand-new category surfaced');
+
+// under three months of history, refuse to call anything unusual
+fresh();
+ctx.S.transactions.push(ex('2026-08-10', 'dining', 100));
+ctx.S.transactions.push(ex('2026-09-02', 'dining', 90000));
+assert.strictEqual(ctx.spendAnomalies('2026-09').length, 0, 'not enough history to judge');
+console.log('ok  refuses to judge on 1 month of history');
+
+// income must never be flagged as unusual spending
+fresh();
+for (const m of ['2026-06', '2026-07', '2026-08']) ctx.S.transactions.push(ex(m + '-10', 'dining', 10000));
+ctx.S.transactions.push({ date: '2026-09-02', type: 'income', amount: 900000, cat: 'payouts', biz: null });
+assert.strictEqual(ctx.spendAnomalies('2026-09').length, 0, 'income is not spending');
+console.log('ok  income never flagged');
+
+// ordering: biggest overshoot first
+fresh();
+for (const m of ['2026-06', '2026-07', '2026-08']) {
+  ctx.S.transactions.push(ex(m + '-10', 'a', 10000));
+  ctx.S.transactions.push(ex(m + '-11', 'b', 10000));
+}
+ctx.S.transactions.push(ex('2026-09-02', 'a', 30000));
+ctx.S.transactions.push(ex('2026-09-03', 'b', 80000));
+a = ctx.spendAnomalies('2026-09');
+assert.strictEqual(a.map((x) => x.cat).join(','), 'b,a', 'sorted by overshoot');
+console.log('ok  sorted by overshoot ->', a.map((x) => x.cat).join(', '));
+
+console.log('\nall anomaly checks pass');
