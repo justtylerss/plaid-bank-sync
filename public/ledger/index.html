@@ -38,6 +38,11 @@
   --ease-out: cubic-bezier(0, 0, .2, 1);
   --ease-in: cubic-bezier(.4, 0, 1, 1);
   --ease: cubic-bezier(.4, 0, .2, 1);
+  /* The rail is a large moving surface. The 200ms/standard pairing that
+     suits a button reads as a snap at this size, so it gets its own longer
+     duration and a quintic ease-out that settles instead of stopping. */
+  --rail-w: 64px; --rail-open-w: 232px;
+  --rail-dur: 340ms; --rail-ease: cubic-bezier(.22, 1, .36, 1);
   --shadow: 0 24px 60px rgba(16,18,20,.16);
   --font: "Geist", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --display: "Onest", "Geist", system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -107,7 +112,7 @@ svg.i { width: 18px; height: 18px; flex: none; stroke: currentColor; fill: none;
 .brand small { display: block; font-family: var(--font); font-weight: 500; font-size: 11px; color: var(--muted); letter-spacing: .04em; text-transform: uppercase; margin-top: 1px; }
 
 /* ============ App shell ============ */
-.app { display: grid; grid-template-columns: 64px minmax(0, 1fr); min-height: 100vh; }
+.app { display: grid; grid-template-columns: var(--rail-w) minmax(0, 1fr); min-height: 100vh; }
 .sidebar {
   position: sticky; top: env(safe-area-inset-top, 0px); height: 100vh; overflow-y: auto; display: flex; flex-direction: column;
   padding: var(--sp-4) var(--sp-3) var(--sp-3); border-right: 1px solid var(--line); background: var(--bg); z-index: 30;
@@ -135,31 +140,90 @@ svg.i { width: 18px; height: 18px; flex: none; stroke: currentColor; fill: none;
    resizing it, so nothing underneath reflows when you pass over it.
    Below 900px the drawer rules further down win and this is all moot. */
 @media (min-width: 901px) {
-  .sidebar { width: 64px; transition: width var(--dur-2) var(--ease); }
-  .sidebar:hover, .sidebar:focus-within { width: 232px; box-shadow: var(--shadow); }
+  .sidebar { width: var(--rail-w); transition: width var(--rail-dur) var(--rail-ease), box-shadow var(--rail-dur) var(--rail-ease); }
+  .sidebar:hover, .sidebar:focus-within { width: var(--rail-open-w); box-shadow: var(--shadow); }
+
+  /* Everything that is text slides in from the left as it fades, rather than
+     appearing at full opacity in place. Two properties moving together is
+     what stops it reading as a pop. */
   .sidebar .nav-label,
   .sidebar .brand span,
+  .sidebar .rail-lock,
   .sidebar .nav a > span:not(.count),
-  .sidebar .side-foot { opacity: 0; transition: opacity var(--dur-1) var(--ease); }
-  .sidebar:hover .nav-label,
-  .sidebar:hover .brand span,
-  .sidebar:hover .nav a > span:not(.count),
-  .sidebar:hover .side-foot,
-  .sidebar:focus-within .nav-label,
-  .sidebar:focus-within .brand span,
-  .sidebar:focus-within .nav a > span:not(.count),
-  .sidebar:focus-within .side-foot { opacity: 1; }
+  .sidebar .side-foot {
+    opacity: 0; transform: translateX(-9px);
+    transition: opacity 240ms var(--rail-ease), transform 240ms var(--rail-ease);
+    transition-delay: 0ms;   /* closing is immediate; only opening staggers */
+  }
+  .sidebar:hover .nav-label, .sidebar:focus-within .nav-label,
+  .sidebar:hover .brand span, .sidebar:focus-within .brand span,
+  .sidebar:hover .rail-lock, .sidebar:focus-within .rail-lock,
+  .sidebar:hover .nav a > span:not(.count), .sidebar:focus-within .nav a > span:not(.count),
+  .sidebar:hover .side-foot, .sidebar:focus-within .side-foot {
+    opacity: 1; transform: none;
+    transition-delay: calc(var(--d, 0ms) + var(--i, 0) * 26ms);
+  }
+
+  /* --d walks down the sidebar's own children, --i walks down the links
+     inside each group. Together they cascade instead of arriving at once. */
+  .sidebar > :nth-child(1) { --d: 30ms; }
+  .sidebar > :nth-child(2) { --d: 60ms; }
+  .sidebar > :nth-child(3) { --d: 95ms; }
+  .sidebar > :nth-child(4) { --d: 130ms; }
+  .sidebar > :nth-child(5) { --d: 165ms; }
+  .sidebar > :nth-child(6) { --d: 200ms; }
+  .sidebar .nav a:nth-child(1) { --i: 0; }
+  .sidebar .nav a:nth-child(2) { --i: 1; }
+  .sidebar .nav a:nth-child(3) { --i: 2; }
+  .sidebar .nav a:nth-child(4) { --i: 3; }
+  .sidebar .nav a:nth-child(5) { --i: 4; }
+  .sidebar .nav a:nth-child(6) { --i: 5; }
+
   /* A count is the one thing worth keeping while collapsed, so it becomes a
      dot rather than disappearing — the badge would be clipped at 64px. */
   .sidebar .nav a .count { font-size: 0; padding: 0; width: 7px; height: 7px; border-radius: 50%;
-    background: var(--accent); margin-left: 2px; }
+    background: var(--accent); margin-left: 2px;
+    transition: width var(--rail-dur) var(--rail-ease), height var(--rail-dur) var(--rail-ease),
+      background var(--rail-dur) var(--rail-ease), border-radius var(--rail-dur) var(--rail-ease); }
   .sidebar:hover .nav a .count,
   .sidebar:focus-within .nav a .count { font-size: 11px; padding: 1px 7px; width: auto; height: auto;
     border-radius: 20px; background: var(--accent-soft); margin-left: auto; }
+
+  /* Pinned: no hover needed, and the column widens so the table is beside
+     the sidebar rather than underneath it. */
+  :root[data-rail="locked"] .app { grid-template-columns: var(--rail-open-w) minmax(0, 1fr); }
+  :root[data-rail="locked"] .sidebar { width: var(--rail-open-w); box-shadow: none; }
+  :root[data-rail="locked"] .sidebar .nav-label,
+  :root[data-rail="locked"] .sidebar .brand span,
+  :root[data-rail="locked"] .sidebar .rail-lock,
+  :root[data-rail="locked"] .sidebar .nav a > span:not(.count),
+  :root[data-rail="locked"] .sidebar .side-foot { opacity: 1; transform: none; transition-delay: 0ms; }
+  :root[data-rail="locked"] .sidebar .nav a .count { font-size: 11px; padding: 1px 7px; width: auto;
+    height: auto; border-radius: 20px; background: var(--accent-soft); margin-left: auto; }
 }
+
+/* The pin itself. Tilted and grey while the rail is only borrowed, upright
+   and accented once it is held open — the rotation is the feedback. */
+.rail-lock { margin-left: auto; flex: none; width: 26px; height: 26px; display: grid; place-items: center;
+  border: 0; border-radius: 8px; background: none; color: var(--muted); cursor: pointer; padding: 0;
+  transform: rotate(-14deg);
+  transition: color var(--dur-1) var(--ease), background var(--dur-1) var(--ease),
+    transform var(--rail-dur) var(--rail-ease), opacity 240ms var(--rail-ease); }
+.rail-lock svg { width: 15px; height: 15px; }
+.rail-lock:hover { background: var(--surface-3); color: var(--text); }
+:root[data-rail="locked"] .rail-lock { color: var(--accent-text); transform: rotate(0deg); }
+@media (max-width: 900px) { .rail-lock { display: none; } }
+
 @media (min-width: 901px) and (prefers-reduced-motion: reduce) {
-  .sidebar, .sidebar .nav-label, .sidebar .brand span,
-  .sidebar .nav a > span:not(.count), .sidebar .side-foot { transition: none; }
+  .sidebar, .sidebar .nav-label, .sidebar .brand span, .sidebar .rail-lock,
+  .sidebar .nav a > span:not(.count), .sidebar .side-foot, .sidebar .nav a .count { transition: none; }
+  .sidebar:hover .nav-label, .sidebar:focus-within .nav-label,
+  .sidebar:hover .brand span, .sidebar:focus-within .brand span,
+  .sidebar:hover .rail-lock, .sidebar:focus-within .rail-lock,
+  .sidebar:hover .nav a > span:not(.count), .sidebar:focus-within .nav a > span:not(.count),
+  .sidebar:hover .side-foot, .sidebar:focus-within .side-foot { transition-delay: 0ms; }
+  .sidebar .nav-label, .sidebar .brand span, .sidebar .rail-lock,
+  .sidebar .nav a > span:not(.count), .sidebar .side-foot { transform: none; }
 }
 
 .save-status .led { width: 7px; height: 7px; border-radius: 50%; background: var(--pos); box-shadow: 0 0 0 3px color-mix(in srgb, var(--pos) 20%, transparent); }
@@ -2805,7 +2869,7 @@ const ACT = {};     // click actions  [data-act]
 const CHG = {};     // change handlers [data-change]
 const INP = {};     // input handlers  [data-input]
 const ui = {
-  view: 'transactions', month: curMonth(), year: curMonth().slice(0, 4),
+  view: 'transactions', railLock: Prefs.get('rail', '0') === '1', month: curMonth(), year: curMonth().slice(0, 4),
   tx: { q: '', scope: 'month', type: '', cat: '', pm: '', biz: '' }, txLimit: 150,
   bizTab: 'all', firmYear: 'all', privacy: Prefs.get('privacy', '0') === '1',
   cashflowMonths: Number(Prefs.get('cashflowMonths', '6')) || 6,
@@ -2903,7 +2967,7 @@ function sidebarHTML() {
   const due = upcoming(0).length;
   const counts = { recurring: due, import: S.inbox.length };
   const nav = NAV.map(([label, items]) => `<div class="nav-group"><div class="nav-label">${esc(label)}</div><nav class="nav">${items.map(([id, t, ic]) => `<a href="#/${id}" class="${ui.view === id ? 'active' : ''}" ${ui.view === id ? 'aria-current="page"' : ''}>${icon(ic)}<span>${esc(t)}</span>${counts[id] ? `<span class="count" title="Due now">${counts[id]}</span>` : ''}</a>`).join('')}</nav></div>`).join('');
-  return `<div class="brand"><span class="brand-mark">${BRAND_SVG}</span><span>Ledger Vault<small>Cloud</small></span></div>${nav}
+  return `<div class="brand"><span class="brand-mark">${BRAND_SVG}</span><span>Ledger Vault<small>Cloud</small></span><button class="rail-lock" data-act="rail-lock" aria-pressed="${ui.railLock ? 'true' : 'false'}" title="${ui.railLock ? 'Unpin the sidebar' : 'Keep the sidebar open'}">${icon('lock')}</button></div>${nav}
     <div class="side-foot">
       <nav class="nav">
         <a href="/">${icon('landmark')}<span>Bank Sync</span></a>
@@ -2916,6 +2980,13 @@ function sidebarHTML() {
       </div>
     </div>`;
 }
+ACT['rail-lock'] = () => {
+  ui.railLock = !ui.railLock;
+  Prefs.set('rail', ui.railLock ? '1' : '0');
+  applyRail();
+  render();
+};
+const applyRail = () => document.documentElement.setAttribute('data-rail', ui.railLock ? 'locked' : 'auto');
 ACT['logout'] = async () => {
   await fetch('/api/auth/logout', { method: 'POST' });
   window.location.href = '/login.html';
@@ -6789,6 +6860,7 @@ function mountApp() {
   applyMotion(ui.motion);
   $('#app').innerHTML = shellHTML();
   ui.view = parseHash();
+  applyRail();
   if (!location.hash) { try { history.replaceState(null, '', '#/transactions'); } catch (e) { /* sandboxed */ } }
   lastActivity = Date.now();
   render();
