@@ -107,7 +107,7 @@ svg.i { width: 18px; height: 18px; flex: none; stroke: currentColor; fill: none;
 .brand small { display: block; font-family: var(--font); font-weight: 500; font-size: 11px; color: var(--muted); letter-spacing: .04em; text-transform: uppercase; margin-top: 1px; }
 
 /* ============ App shell ============ */
-.app { display: grid; grid-template-columns: 232px minmax(0, 1fr); min-height: 100vh; }
+.app { display: grid; grid-template-columns: 64px minmax(0, 1fr); min-height: 100vh; }
 .sidebar {
   position: sticky; top: env(safe-area-inset-top, 0px); height: 100vh; overflow-y: auto; display: flex; flex-direction: column;
   padding: var(--sp-4) var(--sp-3) var(--sp-3); border-right: 1px solid var(--line); background: var(--bg); z-index: 30;
@@ -128,6 +128,40 @@ svg.i { width: 18px; height: 18px; flex: none; stroke: currentColor; fill: none;
 .nav a .count { margin-left: auto; font-size: 11px; background: var(--accent-soft); color: var(--accent-text); border-radius: 20px; padding: 1px 7px; font-weight: 600; }
 .side-foot { margin-top: auto; padding-top: var(--sp-3); border-top: 1px solid var(--line); display: grid; gap: var(--sp-2); }
 .save-status { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); padding: 0 8px; }
+
+/* The sidebar is a rail. 232px of permanent chrome for nine links you already
+   know is a bad trade on a screen whose job is a wide table. It widens on
+   hover and on keyboard focus, and overflows its grid column rather than
+   resizing it, so nothing underneath reflows when you pass over it.
+   Below 900px the drawer rules further down win and this is all moot. */
+@media (min-width: 901px) {
+  .sidebar { width: 64px; transition: width var(--dur-2) var(--ease); }
+  .sidebar:hover, .sidebar:focus-within { width: 232px; box-shadow: var(--shadow); }
+  .sidebar .nav-label,
+  .sidebar .brand span,
+  .sidebar .nav a > span:not(.count),
+  .sidebar .side-foot { opacity: 0; transition: opacity var(--dur-1) var(--ease); }
+  .sidebar:hover .nav-label,
+  .sidebar:hover .brand span,
+  .sidebar:hover .nav a > span:not(.count),
+  .sidebar:hover .side-foot,
+  .sidebar:focus-within .nav-label,
+  .sidebar:focus-within .brand span,
+  .sidebar:focus-within .nav a > span:not(.count),
+  .sidebar:focus-within .side-foot { opacity: 1; }
+  /* A count is the one thing worth keeping while collapsed, so it becomes a
+     dot rather than disappearing — the badge would be clipped at 64px. */
+  .sidebar .nav a .count { font-size: 0; padding: 0; width: 7px; height: 7px; border-radius: 50%;
+    background: var(--accent); margin-left: 2px; }
+  .sidebar:hover .nav a .count,
+  .sidebar:focus-within .nav a .count { font-size: 11px; padding: 1px 7px; width: auto; height: auto;
+    border-radius: 20px; background: var(--accent-soft); margin-left: auto; }
+}
+@media (min-width: 901px) and (prefers-reduced-motion: reduce) {
+  .sidebar, .sidebar .nav-label, .sidebar .brand span,
+  .sidebar .nav a > span:not(.count), .sidebar .side-foot { transition: none; }
+}
+
 .save-status .led { width: 7px; height: 7px; border-radius: 50%; background: var(--pos); box-shadow: 0 0 0 3px color-mix(in srgb, var(--pos) 20%, transparent); }
 .save-status.saving .led { background: var(--warn); box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 20%, transparent); }
 .save-status.error .led { background: var(--crit); }
@@ -313,6 +347,27 @@ tr:hover .row-actions, .row-actions:focus-within { opacity: 1; }
 .ico-tile svg { width: 16px; height: 16px; }
 .summary-strip { display: flex; gap: 8px 22px; align-items: center; flex-wrap: wrap; font-size: 13px; color: var(--muted); padding: 0 2px 12px; }
 .summary-strip b { color: var(--text); font-weight: 600; }
+
+/* The numbers you open this screen for. They were a line of 13px grey text
+   between the toolbar and the table, which is where the eye goes last.
+   Monospaced so the digits line up column to column. .amt is kept on the
+   money ones so the privacy blur still covers them. */
+.tx-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--sp-3); margin-bottom: var(--sp-4); }
+.tx-stats .st { background: var(--surface); border: 1px solid var(--card-border); border-radius: var(--radius-sm);
+  padding: 10px 14px; min-width: 0; display: block; color: inherit; text-decoration: none; }
+.tx-stats a.st { transition: border-color var(--dur-1) var(--ease); }
+.tx-stats a.st:hover { border-color: var(--line-2); }
+.tx-stats .k { font-size: 10.5px; font-weight: 650; letter-spacing: .09em; text-transform: uppercase; color: var(--muted); }
+.tx-stats .v { font-family: var(--mono); font-size: 21px; font-weight: 500; letter-spacing: -.03em;
+  margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tx-meta { display: flex; align-items: center; gap: 8px 18px; flex-wrap: wrap; font-size: 13px;
+  color: var(--muted); padding: 0 2px 12px; }
+.tx-meta b { color: var(--text); font-weight: 600; }
+@media (max-width: 720px) {
+  .tx-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-2); }
+  .tx-stats .v { font-size: 18px; }
+}
+
 .show-sm { display: none; }
 .show-more { display: flex; justify-content: center; padding: 14px; border-top: 1px solid var(--line); }
 
@@ -2750,7 +2805,7 @@ const ACT = {};     // click actions  [data-act]
 const CHG = {};     // change handlers [data-change]
 const INP = {};     // input handlers  [data-input]
 const ui = {
-  view: 'dashboard', month: curMonth(), year: curMonth().slice(0, 4),
+  view: 'transactions', month: curMonth(), year: curMonth().slice(0, 4),
   tx: { q: '', scope: 'month', type: '', cat: '', pm: '', biz: '' }, txLimit: 150,
   bizTab: 'all', firmYear: 'all', privacy: Prefs.get('privacy', '0') === '1',
   cashflowMonths: Number(Prefs.get('cashflowMonths', '6')) || 6,
@@ -2906,7 +2961,7 @@ function go(view) {
   if (location.hash !== '#/' + view) location.hash = '#/' + view;
   else { ui.view = view; render(); }
 }
-const parseHash = () => { const v = location.hash.replace(/^#\/?/, '').split('?')[0]; return VIEWS[v] ? v : 'dashboard'; };
+const parseHash = () => { const v = location.hash.replace(/^#\/?/, '').split('?')[0]; return VIEWS[v] ? v : 'transactions'; };
 window.addEventListener('hashchange', () => {
   if (!S) return;
   ui.view = parseHash();
@@ -3656,7 +3711,15 @@ function txResultsHTML() {
   const bulkBar = nSel
     ? `<button class="btn sm ghost danger" data-act="tx-del-selected">${icon('trash')}Delete ${nSel} selected</button><button class="btn sm ghost" data-act="tx-select-toggle">Select none</button>`
     : `<button class="btn sm ghost" data-act="rescan" title="Re-check every transaction against the latest prop firm list and your rules">${icon('refresh')}Re-scan</button><button class="btn sm ghost" data-act="csv-import">${icon('upload')}Import CSV</button><button class="btn sm ghost" data-act="tx-export">${icon('download')}Export</button>`;
-  return `<div class="summary-strip"><span>${esc(scopeLabel)}</span><span><b>${list.length}</b> transactions</span><span>In <b class="amt">${esc(money(inc))}</b></span><span>Out <b class="amt">${esc(money(out))}</b></span><span>Net <b class="amt">${esc(money(inc - out, { sign: true }))}</b></span>${ded ? `<span>Deductible <b class="amt">${esc(money(ded))}</b></span>` : ''}<span class="spacer"></span>${bulkBar}</div>
+  const nr = needsReview().length;
+  const net = inc - out;
+  return `<div class="tx-stats">
+    <div class="st"><div class="k">In</div><div class="v amt" style="color:var(--pos)">${esc(money(inc))}</div></div>
+    <div class="st"><div class="k">Out</div><div class="v amt" style="color:var(--neg)">${esc(money(out))}</div></div>
+    <div class="st"><div class="k">Net</div><div class="v amt" style="color:var(--${net < 0 ? 'neg' : 'pos'})">${esc(money(net, { sign: true }))}</div></div>
+    <a class="st" href="#/dashboard" title="Transactions the app cannot read confidently"><div class="k">Needs review</div><div class="v" style="color:var(--${nr ? 'warn' : 'muted'})">${nr}</div></a>
+  </div>
+  <div class="tx-meta"><span>${esc(scopeLabel)}</span><span><b>${list.length}</b> transactions</span>${ded ? `<span>Deductible <b class="amt">${esc(money(ded))}</b></span>` : ''}<span class="spacer"></span>${bulkBar}</div>
   <div class="card flush"><div class="table-wrap"><table class="table"><colgroup><col class="c-cb"><col class="c-date hide-sm"><col><col class="c-cat hide-sm"><col class="c-amt"><col class="c-act hide-sm"></colgroup><thead><tr><th class="cb"><input type="checkbox" data-act="tx-select-toggle" ${allShownSelected ? 'checked' : ''} aria-label="Select all shown"></th><th class="hide-sm">Date</th><th>Description</th><th class="hide-sm">Category</th><th class="num">Amount</th><th class="hide-sm"><span class="sr-only">Actions</span></th></tr></thead><tbody>${shown.map(txRow).join('')}</tbody></table></div>
   ${list.length > shown.length ? `<div class="show-more"><button class="btn sm" data-act="tx-more">Show ${Math.min(150, list.length - shown.length)} more of ${list.length - shown.length}</button></div>` : ''}</div>`;
 }
@@ -6726,7 +6789,7 @@ function mountApp() {
   applyMotion(ui.motion);
   $('#app').innerHTML = shellHTML();
   ui.view = parseHash();
-  if (!location.hash) { try { history.replaceState(null, '', '#/dashboard'); } catch (e) { /* sandboxed */ } }
+  if (!location.hash) { try { history.replaceState(null, '', '#/transactions'); } catch (e) { /* sandboxed */ } }
   lastActivity = Date.now();
   render();
   if (Cloud.mode === 'demo') toast('Demo mode: sample data, nothing is saved');
