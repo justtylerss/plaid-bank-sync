@@ -427,6 +427,10 @@ tr:hover .row-actions, .row-actions:focus-within { opacity: 1; }
 .tx-meta { display: flex; align-items: center; gap: 8px 18px; flex-wrap: wrap; font-size: 13px;
   color: var(--muted); padding: 0 2px 12px; }
 .tx-meta b { color: var(--text); font-weight: 600; }
+.tx-year { padding-bottom: var(--sp-3); margin-bottom: var(--sp-3); border-bottom: 1px solid var(--line); }
+.tx-year [data-tip] { cursor: help; border-bottom: 1px dotted var(--line-2); }
+.tx-year a { color: var(--accent-text); text-decoration: none; font-weight: 600; }
+.tx-year a:hover { text-decoration: underline; }
 @media (max-width: 720px) {
   .tx-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-2); }
   .tx-stats .v { font-size: 18px; }
@@ -1660,6 +1664,42 @@ const sortTx = (arr) => arr.slice().sort((a, b) => (a.date < b.date ? 1 : a.date
 const deductible = (t) => (t.type === 'expense' && t.biz ? Math.round(t.amount * clamp(Number(t.biz.pct ?? 100), 0, 100) / 100) : 0);
 const txIn = (pred) => S.transactions.filter(pred);
 const inMonth = (mk) => (t) => t.date.startsWith(mk);
+/* Rate, not totals. Lumpy income makes an average lie: one $4,000 payout
+   month drags a mean upward and hides that the other five were thin. The
+   median of complete months is the number you can plan against. The current
+   month is left out because a partial month always flatters the spend side. */
+function rateStats(months = 6) {
+  const cur = curMonth();
+  const rows = [];
+  for (let i = months; i >= 1; i--) {
+    const t = monthTotals(addMonths(cur, -i));
+    if (t.income || t.expense) rows.push(t);
+  }
+  if (rows.length < 3) return { n: rows.length, enough: false };
+  const med = (xs) => {
+    const a = [...xs].sort((x, y) => x - y);
+    const h = a.length >> 1;
+    return a.length % 2 ? a[h] : Math.round((a[h - 1] + a[h]) / 2);
+  };
+  const income = med(rows.map((r) => r.income));
+  const expense = med(rows.map((r) => r.expense));
+  return { n: rows.length, enough: true, income, expense, gap: income - expense };
+}
+
+/* The year's business position, deliberately independent of whichever
+   business tab happens to be open — this figure appears outside that screen.
+   A loss sets nothing aside: you cannot owe self-employment tax on a year
+   that lost money. How the loss itself carries is a question for a CPA, so
+   the app reports the components and does not rule on it. */
+function taxPosition(y) {
+  const txs = S.transactions.filter((t) => t.biz && t.date.startsWith(y));
+  const income = sum(txs.filter((t) => t.type === 'income'), (t) => t.amount);
+  const ded = sum(txs.filter((t) => t.type === 'expense'), deductible)
+    + sum(S.trips.filter((t) => t.date.startsWith(y)), tripDeduction);
+  const net = income - ded;
+  return { income, ded, net, setAside: Math.max(0, Math.round(net * (S.settings.taxPct || 0) / 100)) };
+}
+
 function monthTotals(mk) {
   let income = 0, expense = 0;
   for (const t of S.transactions) {
@@ -3784,6 +3824,26 @@ function txRow(t) {
     <td class="actions hide-sm"><span class="row-actions"><button class="btn ghost icon-btn sm" data-act="tx-dup" data-id="${t.id}" aria-label="Duplicate" title="Duplicate">${icon('copy')}</button><button class="btn ghost icon-btn sm" data-act="tx-del" data-id="${t.id}" aria-label="Delete" title="Delete">${icon('trash')}</button></span></td>
   </tr>`;
 }
+/* The two questions that do not depend on which month or filter is showing:
+   am I clearing more than I burn, and where does the year stand for tax. */
+function yearLineHTML() {
+  const y = curMonth().slice(0, 4);
+  const r = rateStats();
+  const t = taxPosition(y);
+  const bits = [];
+  bits.push(r.enough
+    ? `<span data-tip="Median of your last ${r.n} complete months, in ${esc(money(r.income))} and out ${esc(money(r.expense))}. Median rather than average so one big payout month does not flatter it.">Clearing <b class="amt" style="color:var(--${r.gap < 0 ? 'neg' : 'pos'})">${esc(money(r.gap, { sign: true }))}</b>/mo</span>`
+    : `<span class="muted">Not enough months yet for a rate</span>`);
+  if (t.income || t.ded) {
+    bits.push(`<span>${esc(y)} business net <b class="amt" style="color:var(--${t.net < 0 ? 'neg' : 'pos'})">${esc(money(t.net, { sign: true }))}</b></span>`);
+    bits.push(t.net < 0
+      ? `<span data-tip="No self-employment tax is owed on a year that lost money. Ask your CPA how the loss carries.">Set aside <b>nothing yet</b></span>`
+      : `<span>Set aside <b class="amt">${esc(money(t.setAside))}</b> at ${esc(S.settings.taxPct)}%</span>`);
+  }
+  bits.push(`<span class="spacer"></span><a class="linkish" href="#/business">Write-offs & Taxes</a>`);
+  return bits.join('');
+}
+
 function txResultsHTML() {
   const list = txFiltered();
   const inc = sum(list.filter((t) => t.type === 'income'), (t) => t.amount);
@@ -3805,6 +3865,7 @@ function txResultsHTML() {
     <div class="st"><div class="k">Net</div><div class="v amt" style="color:var(--${net < 0 ? 'neg' : 'pos'})">${esc(money(net, { sign: true }))}</div></div>
     <a class="st" href="#/dashboard" title="Transactions the app cannot read confidently"><div class="k">Needs review</div><div class="v" style="color:var(--${nr ? 'warn' : 'muted'})">${nr}</div></a>
   </div>
+  <div class="tx-meta tx-year">${yearLineHTML()}</div>
   <div class="tx-meta"><span>${esc(scopeLabel)}</span><span><b>${list.length}</b> transactions</span>${ded ? `<span>Deductible <b class="amt">${esc(money(ded))}</b></span>` : ''}<span class="spacer"></span>${bulkBar}</div>
   <div class="card flush"><div class="table-wrap"><table class="table"><colgroup><col class="c-cb"><col class="c-date hide-sm"><col><col class="c-cat hide-sm"><col class="c-amt"><col class="c-act hide-sm"></colgroup><thead><tr><th class="cb"><input type="checkbox" data-act="tx-select-toggle" ${allShownSelected ? 'checked' : ''} aria-label="Select all shown"></th><th class="hide-sm">Date</th><th>Description</th><th class="hide-sm">Category</th><th class="num">Amount</th><th class="hide-sm"><span class="sr-only">Actions</span></th></tr></thead><tbody>${shown.map(txRow).join('')}</tbody></table></div>
   ${list.length > shown.length ? `<div class="show-more"><button class="btn sm" data-act="tx-more">Show ${Math.min(150, list.length - shown.length)} more of ${list.length - shown.length}</button></div>` : ''}</div>`;
@@ -5745,7 +5806,7 @@ VIEWS.business = {
       ${UI.stat('Business income', amt(d.income), { sub: 'Payouts, commissions' })}
       ${UI.stat('Deductible expenses', amt(d.ded), { sub: d.gross !== d.ded ? `<span class="amt">${esc(money(d.gross))}</span> before business-use %` : `${plural(d.exp.length, 'expense')}` })}
       ${UI.stat('Mileage deduction', amt(d.mileDed), { sub: `${Math.round(d.miles).toLocaleString()} business miles` })}
-      ${UI.stat('Est. net profit', amt(d.net, {}, d.net < 0 ? 'neg' : ''), { sub: `Set aside ≈ <span class="amt">${esc(money(d.setAside))}</span> at ${esc(S.settings.taxPct)}%` })}
+      ${UI.stat(d.net < 0 ? 'Est. net loss' : 'Est. net profit', amt(d.net, {}, d.net < 0 ? 'neg' : ''), { sub: d.net < 0 ? 'A loss year — nothing to set aside. Ask your CPA how it carries.' : `Set aside ≈ <span class="amt">${esc(money(d.setAside))}</span> at ${esc(S.settings.taxPct)}%` })}
     </div>`;
 
     // by category
