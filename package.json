@@ -8,7 +8,7 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
-    "test": "node test/test_rate.js",
+    "test": "node test/test_rate.js && node test/test_totp.js",
     "graph": "node tools/graph.js"
   },
   "dependencies": {

@@ -100,25 +100,28 @@ function findUserByEmail(email) {
    Values written before this are plain and stay readable. They are re-written
    encrypted the first time the file is saved, so migration needs no step. */
 const TOKEN_PREFIX = 'enc.v1.';
-let tokenKey = null;
-function getTokenKey() {
-  if (tokenKey) return tokenKey;
+/* One key per purpose, all derived from the one secret. A key that encrypts
+   bank tokens should not also encrypt second-factor secrets: same root, same
+   strength, but a mistake in one use cannot reach the other. */
+const keyCache = new Map();
+function getKey(info) {
+  if (keyCache.has(info)) return Buffer.from(keyCache.get(info));
   const secret = process.env.SESSION_SECRET;
   if (!secret) return null;
-  tokenKey = crypto.hkdfSync('sha256', Buffer.from(secret, 'utf8'), Buffer.alloc(0), Buffer.from('plaid-access-token-v1'), 32);
-  return Buffer.from(tokenKey);
+  const k = crypto.hkdfSync('sha256', Buffer.from(secret, 'utf8'), Buffer.alloc(0), Buffer.from(info), 32);
+  keyCache.set(info, k);
+  return Buffer.from(k);
 }
-function encryptToken(plain) {
-  const key = getTokenKey();
+const getTokenKey = () => getKey('plaid-access-token-v1');
+function encryptToken(plain, key = getTokenKey()) {
   if (!key || !plain || String(plain).startsWith(TOKEN_PREFIX)) return plain;
   const iv = crypto.randomBytes(12);
   const c = crypto.createCipheriv('aes-256-gcm', key, iv);
   const out = Buffer.concat([c.update(String(plain), 'utf8'), c.final()]);
   return TOKEN_PREFIX + Buffer.concat([iv, c.getAuthTag(), out]).toString('base64');
 }
-function decryptToken(stored) {
+function decryptToken(stored, key = getTokenKey()) {
   if (!stored || !String(stored).startsWith(TOKEN_PREFIX)) return stored;  // written before this existed
-  const key = getTokenKey();
   if (!key) throw new Error('SESSION_SECRET is required to read stored bank credentials.');
   const raw = Buffer.from(String(stored).slice(TOKEN_PREFIX.length), 'base64');
   const d = crypto.createDecipheriv('aes-256-gcm', key, raw.subarray(0, 12));
@@ -155,6 +158,107 @@ function getAccounts() { return readJSON(ACCOUNTS_FILE, {}); }
 function saveAccounts(accts) { writeJSON(ACCOUNTS_FILE, accts); }
 
 // ---------------------------------------------------------------------------
+/* ---- Second factor -------------------------------------------------------
+
+   TOTP as specified in RFC 6238, on Node's own crypto. The whole algorithm is
+   an HMAC, a truncation and a modulo; a dependency to do that would add more
+   surface than it removes.
+
+   The shared secret is a credential in its own right — anyone holding it can
+   mint valid codes forever — so it is encrypted at rest under its own derived
+   key, not the one the bank tokens use. Same root secret, different key, so
+   neither use can weaken the other. */
+const B32_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+const TOTP_STEP_S = 30;
+const TOTP_DRIFT = 1;          // one step either side, for clock skew
+const MFA_TICKET_TTL = '5m';   // long enough to read a code off a phone
+const MFA_MAX_TRIES = 5;
+const MFA_LOCKOUT_MS = 15 * 60 * 1000;
+
+function b32encode(buf) {
+  let bits = 0, value = 0, out = '';
+  for (const byte of buf) {
+    value = (value << 8) | byte;
+    bits += 8;
+    while (bits >= 5) { out += B32_ALPHABET[(value >>> (bits - 5)) & 31]; bits -= 5; }
+  }
+  if (bits > 0) out += B32_ALPHABET[(value << (5 - bits)) & 31];
+  return out;
+}
+function b32decode(str) {
+  let bits = 0, value = 0;
+  const out = [];
+  for (const ch of String(str).toUpperCase().replace(/[^A-Z2-7]/g, '')) {
+    value = (value << 5) | B32_ALPHABET.indexOf(ch);
+    bits += 5;
+    if (bits >= 8) { out.push((value >>> (bits - 8)) & 255); bits -= 8; }
+  }
+  return Buffer.from(out);
+}
+function hotp(key, counter) {
+  const buf = Buffer.alloc(8);
+  buf.writeBigUInt64BE(BigInt(counter));
+  const mac = crypto.createHmac('sha1', key).update(buf).digest();
+  const off = mac[mac.length - 1] & 0x0f;
+  const bin = ((mac[off] & 0x7f) << 24) | (mac[off + 1] << 16) | (mac[off + 2] << 8) | mac[off + 3];
+  return String(bin % 1000000).padStart(6, '0');
+}
+/* Compared in constant time. A timing signal on a six digit code is not much
+   of a leak, but it costs one function call not to have one. */
+function totpCheck(secretB32, code, at = Date.now()) {
+  const given = String(code || '').replace(/\D/g, '');
+  if (given.length !== 6) return false;
+  const key = b32decode(secretB32);
+  if (!key.length) return false;
+  const counter = Math.floor(at / 1000 / TOTP_STEP_S);
+  let ok = false;
+  for (let w = -TOTP_DRIFT; w <= TOTP_DRIFT; w++) {
+    // no early return: every window is checked so the time taken does not
+    // depend on which one matched
+    if (crypto.timingSafeEqual(Buffer.from(hotp(key, counter + w)), Buffer.from(given))) ok = true;
+  }
+  return ok;
+}
+function otpauthURI(label, secretB32, issuer = 'Ledger Vault Cloud') {
+  return 'otpauth://totp/' + encodeURIComponent(issuer) + ':' + encodeURIComponent(label)
+    + '?secret=' + secretB32 + '&issuer=' + encodeURIComponent(issuer) + '&algorithm=SHA1&digits=6&period=' + TOTP_STEP_S;
+}
+
+/* Recovery codes exist so that a lost phone is an inconvenience rather than
+   the permanent loss of someone's financial history. Stored hashed, single
+   use, shown exactly once. */
+function makeRecoveryCodes(n = 8) {
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const raw = crypto.randomBytes(5).toString('hex');          // 10 hex chars
+    out.push(raw.slice(0, 5) + '-' + raw.slice(5));
+  }
+  return out;
+}
+
+/* Five wrong codes and that account stops accepting them for fifteen minutes.
+   Six digits is a small space to guess through if nothing is counting. */
+const mfaTries = new Map();
+function mfaThrottle(userId) {
+  const now = Date.now();
+  const rec = mfaTries.get(userId);
+  if (rec && now - rec.first > MFA_LOCKOUT_MS) { mfaTries.delete(userId); return { blocked: false }; }
+  if (rec && rec.n >= MFA_MAX_TRIES) {
+    return { blocked: true, retryInMin: Math.ceil((MFA_LOCKOUT_MS - (now - rec.first)) / 60000) };
+  }
+  return { blocked: false };
+}
+function mfaFailed(userId) {
+  const now = Date.now();
+  const rec = mfaTries.get(userId);
+  if (!rec || now - rec.first > MFA_LOCKOUT_MS) mfaTries.set(userId, { n: 1, first: now });
+  else rec.n++;
+}
+const mfaCleared = (userId) => mfaTries.delete(userId);
+
+const mfaOn = (u) => !!(u && u.mfa && u.mfa.enabledAt && u.mfa.secret);
+const mfaSecretOf = (u) => decryptToken(u.mfa.secret, getKey('totp-secret-v1'));
+
 // Auth helpers
 // ---------------------------------------------------------------------------
 function signSession(userId) {
@@ -173,6 +277,10 @@ function requireAuth(req, res, next) {
   if (!token) return res.status(401).json({ error: 'not_authenticated' });
   try {
     const payload = jwt.verify(token, process.env.SESSION_SECRET);
+    // The half-way ticket issued between password and code is signed with the
+    // same secret. It is not a session and must never be accepted as one,
+    // even if something manages to put it in the cookie.
+    if (payload.typ === 'mfa') return res.status(401).json({ error: 'not_authenticated' });
     req.userId = payload.sub;
     next();
   } catch (e) {
@@ -193,7 +301,8 @@ const consentRecord = () => ({ version: CONSENT_VERSION, at: new Date().toISOStr
 const hasConsent = (u) => !!(u && u.consent && u.consent.version >= CONSENT_VERSION);
 
 function publicUser(u) {
-  return { id: u.id, email: u.email, name: u.name || null, consent: u.consent || null, consentCurrent: hasConsent(u) };
+  return { id: u.id, email: u.email, name: u.name || null, consent: u.consent || null, consentCurrent: hasConsent(u),
+    mfa: mfaOn(u), recoveryCodesLeft: mfaOn(u) ? (u.mfa.recovery || []).length : null };
 }
 
 // ---------------------------------------------------------------------------
@@ -253,6 +362,10 @@ app.get(['/privacy', '/privacy-policy'], (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'privacy.html'));
 });
 
+app.get('/security', requireAuth, (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'security.html'));
+});
+
 // ---- Auth routes -----------------------------------------------------------
 
 app.post('/api/auth/signup', async (req, res) => {
@@ -292,6 +405,11 @@ app.post('/api/auth/login', async (req, res) => {
     const ok = user && (await bcrypt.compare(password || '', user.passwordHash));
     if (!ok) return res.status(401).json({ error: 'Incorrect email or password.' });
 
+    if (mfaOn(user)) {
+      // No cookie yet. The password alone does not get you in.
+      const ticket = jwt.sign({ sub: user.id, typ: 'mfa' }, process.env.SESSION_SECRET, { expiresIn: MFA_TICKET_TTL });
+      return res.json({ mfaRequired: true, ticket, recoveryAvailable: (user.mfa.recovery || []).length > 0 });
+    }
     setSessionCookie(req, res, user.id);
     res.json({ ok: true, user: publicUser(user) });
   } catch (err) {
@@ -316,6 +434,110 @@ app.post('/api/auth/consent', requireAuth, (req, res) => {
   if (!user) return res.status(401).json({ error: 'not_authenticated' });
   user.consent = consentRecord();
   saveUsers(users);
+  res.json({ ok: true, user: publicUser(user) });
+});
+
+/* ---- Second factor: enrolment and management ---------------------------- */
+
+/* Step one. Mints a secret and hands back what an authenticator app needs.
+   Nothing is switched on here — the secret sits pending until a code proves
+   the app actually holds it, so a half-finished setup cannot lock anyone out. */
+app.post('/api/auth/mfa/setup', requireAuth, (req, res) => {
+  const users = getUsers();
+  const user = users[req.userId];
+  if (!user) return res.status(401).json({ error: 'not_authenticated' });
+  if (mfaOn(user)) return res.status(409).json({ error: 'Two-factor authentication is already on.' });
+  const secret = b32encode(crypto.randomBytes(20));   // 160 bits, as RFC 4226 recommends
+  user.mfaPending = { secret: encryptToken(secret, getKey('totp-secret-v1')), at: new Date().toISOString() };
+  saveUsers(users);
+  res.json({ secret, uri: otpauthURI(user.email, secret) });
+});
+
+/* Step two. A correct code proves the app holds the secret, so it is safe to
+   start requiring one. Recovery codes are returned here and never again. */
+app.post('/api/auth/mfa/enable', requireAuth, (req, res) => {
+  const users = getUsers();
+  const user = users[req.userId];
+  if (!user) return res.status(401).json({ error: 'not_authenticated' });
+  if (mfaOn(user)) return res.status(409).json({ error: 'Two-factor authentication is already on.' });
+  if (!user.mfaPending) return res.status(400).json({ error: 'Start the setup again.' });
+  const secret = decryptToken(user.mfaPending.secret, getKey('totp-secret-v1'));
+  if (!totpCheck(secret, (req.body || {}).code)) {
+    return res.status(400).json({ error: 'That code did not match. Check your authenticator app and try again.' });
+  }
+  const codes = makeRecoveryCodes();
+  user.mfa = {
+    secret: user.mfaPending.secret,
+    enabledAt: new Date().toISOString(),
+    recovery: codes.map((c) => bcrypt.hashSync(c, 10)),
+  };
+  delete user.mfaPending;
+  saveUsers(users);
+  res.json({ ok: true, recoveryCodes: codes });
+});
+
+/* Turning it off needs the password and a live code, so a borrowed session
+   alone cannot strip the second factor back off the account. */
+app.post('/api/auth/mfa/disable', requireAuth, async (req, res) => {
+  const users = getUsers();
+  const user = users[req.userId];
+  if (!user) return res.status(401).json({ error: 'not_authenticated' });
+  if (!mfaOn(user)) return res.status(400).json({ error: 'Two-factor authentication is not on.' });
+  const { password, code } = req.body || {};
+  if (!password || !(await bcrypt.compare(String(password), user.passwordHash))) {
+    return res.status(401).json({ error: 'That password is not right.' });
+  }
+  if (!totpCheck(mfaSecretOf(user), code)) {
+    return res.status(400).json({ error: 'That code did not match.' });
+  }
+  delete user.mfa;
+  delete user.mfaPending;
+  saveUsers(users);
+  mfaCleared(user.id);
+  res.json({ ok: true });
+});
+
+/* Step two of signing in. The ticket from /login is not a session and
+   requireAuth refuses it; only a correct code or an unused recovery code
+   trades it for one. */
+app.post('/api/auth/mfa/verify', async (req, res) => {
+  const { ticket, code, recovery } = req.body || {};
+  let payload;
+  try {
+    payload = jwt.verify(String(ticket || ''), process.env.SESSION_SECRET);
+  } catch (e) {
+    return res.status(401).json({ error: 'That sign-in expired. Start again.' });
+  }
+  if (payload.typ !== 'mfa') return res.status(401).json({ error: 'That sign-in expired. Start again.' });
+
+  const users = getUsers();
+  const user = users[payload.sub];
+  if (!user || !mfaOn(user)) return res.status(401).json({ error: 'not_authenticated' });
+
+  const gate = mfaThrottle(user.id);
+  if (gate.blocked) {
+    return res.status(429).json({ error: `Too many attempts. Try again in ${gate.retryInMin} minutes.` });
+  }
+
+  if (recovery) {
+    const given = String(recovery).trim().toLowerCase();
+    const list = user.mfa.recovery || [];
+    let used = -1;
+    for (let i = 0; i < list.length; i++) if (await bcrypt.compare(given, list[i])) { used = i; break; }
+    if (used < 0) { mfaFailed(user.id); return res.status(400).json({ error: 'That recovery code is not valid.' }); }
+    list.splice(used, 1);   // single use
+    saveUsers(users);
+    mfaCleared(user.id);
+    setSessionCookie(req, res, user.id);
+    return res.json({ ok: true, user: publicUser(user), recoveryCodesLeft: list.length });
+  }
+
+  if (!totpCheck(mfaSecretOf(user), code)) {
+    mfaFailed(user.id);
+    return res.status(400).json({ error: 'That code did not match.' });
+  }
+  mfaCleared(user.id);
+  setSessionCookie(req, res, user.id);
   res.json({ ok: true, user: publicUser(user) });
 });
 

@@ -75,6 +75,10 @@ button:disabled { opacity: .6; cursor: default; }
 .consent a:hover { text-decoration: underline; }
 .consent-list { margin: 8px 0 0; padding-left: 18px; color: var(--muted); font-size: 12px; }
 .consent-list li { margin-bottom: 3px; }
+#code { font-family: var(--mono, ui-monospace, monospace); font-size: 20px; letter-spacing: .28em; text-align: center; }
+.alt { text-align: center; margin-top: 14px; font-size: 12.5px; }
+.alt a { color: var(--accent-text); text-decoration: none; font-weight: 600; cursor: pointer; }
+.alt a:hover { text-decoration: underline; }
 .legal { text-align: center; margin-top: 16px; font-size: 12px; color: var(--muted); }
 .legal a { color: var(--muted); text-decoration: none; }
 .legal a:hover { color: var(--text-2); text-decoration: underline; }
@@ -135,6 +139,11 @@ button:disabled { opacity: .6; cursor: default; }
       <input id="email" name="email" type="email" autocomplete="email" required>
       <label for="password">Password</label>
       <input id="password" name="password" type="password" autocomplete="current-password" required>
+      <div id="codeField" hidden>
+        <label for="code" id="codeLabel">Six-digit code</label>
+        <input id="code" name="code" type="text" inputmode="numeric" autocomplete="one-time-code"
+               maxlength="6" pattern="[0-9]*" placeholder="000000">
+      </div>
       <div class="consent" id="consentField" hidden>
         <input type="checkbox" id="consent" aria-describedby="consentText">
         <label for="consent" id="consentText">I understand this application retrieves my bank account and transaction
@@ -144,6 +153,8 @@ button:disabled { opacity: .6; cursor: default; }
       <button id="submitBtn" type="submit">Sign in</button>
       <div class="error" id="error"></div>
     </form>
+
+    <div class="alt" id="altAuth" hidden><a id="altLink">Use a recovery code instead</a></div>
 
     <div class="toggle">
       <span id="toggleText">Don't have an account?</span>
@@ -159,6 +170,9 @@ let mode = 'login';
 const $ = (s) => document.querySelector(s);
 const title = $('#title'), subtitle = $('#subtitle'), nameField = $('#nameField');
 const consentField = $('#consentField'), consentBox = $('#consent');
+const codeField = $('#codeField'), codeInput = $('#code'), codeLabel = $('#codeLabel');
+const altAuth = $('#altAuth'), altLink = $('#altLink');
+let mfaTicket = null, useRecovery = false;
 const submitBtn = $('#submitBtn'), toggleText = $('#toggleText'), toggleLink = $('#toggleLink');
 const errorEl = $('#error'), passwordInput = $('#password');
 
@@ -180,6 +194,8 @@ function applyMode() {
     toggleLink.textContent = 'Sign in';
     passwordInput.autocomplete = 'new-password';
   }
+  codeField.hidden = true;
+  altAuth.hidden = true;
   consentField.hidden = mode !== 'signup';
   if (mode !== 'signup') consentBox.checked = false;
   errorEl.style.display = 'none';
@@ -191,6 +207,19 @@ $('#form').addEventListener('submit', async (e) => {
   errorEl.style.display = 'none';
   submitBtn.disabled = true;
   try {
+    if (mode === 'mfa') {
+      const v = codeInput.value.trim();
+      if (!v) throw new Error(useRecovery ? 'Enter a recovery code.' : 'Enter the six-digit code.');
+      const r = await fetch('/api/auth/mfa/verify', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(useRecovery ? { ticket: mfaTicket, recovery: v } : { ticket: mfaTicket, code: v }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || 'That did not work.');
+      if (d.user && !d.user.consentCurrent) { askExistingConsent(); return; }
+      window.location.href = '/';
+      return;
+    }
     if (mode === 'consent') {
       if (!consentBox.checked) throw new Error('Please confirm to continue.');
       const r = await fetch('/api/auth/consent', {
@@ -214,6 +243,7 @@ $('#form').addEventListener('submit', async (e) => {
     if (!res.ok) throw new Error(data.error || 'Something went wrong.');
     // An account created before consent was recorded, or one a version behind,
     // agrees here rather than being assumed to have agreed already.
+    if (data.mfaRequired) { askCode(data.ticket, data.recoveryAvailable); return; }
     if (data.user && !data.user.consentCurrent) { askExistingConsent(); return; }
     window.location.href = '/';
   } catch (err) {
@@ -222,6 +252,43 @@ $('#form').addEventListener('submit', async (e) => {
   } finally {
     submitBtn.disabled = false;
   }
+});
+
+/* The password was right; that is half of it. No session exists yet — the
+   ticket is only good for trading a code for one, and only for five minutes. */
+function askCode(ticket, recoveryAvailable) {
+  mode = 'mfa';
+  mfaTicket = ticket;
+  useRecovery = false;
+  title.textContent = 'Enter your code';
+  subtitle.textContent = 'Open your authenticator app and type the six digits it shows.';
+  nameField.hidden = true;
+  consentField.hidden = true;
+  for (const id of ['email', 'password']) {
+    const f = $('#' + id);
+    f.hidden = true;
+    f.required = false;
+    if (f.previousElementSibling) f.previousElementSibling.hidden = true;
+  }
+  codeField.hidden = false;
+  codeInput.value = '';
+  submitBtn.textContent = 'Sign in';
+  $('.toggle').hidden = true;
+  altAuth.hidden = !recoveryAvailable;
+  errorEl.style.display = 'none';
+  codeInput.focus();
+}
+
+altLink.addEventListener('click', () => {
+  useRecovery = !useRecovery;
+  codeLabel.textContent = useRecovery ? 'Recovery code' : 'Six-digit code';
+  codeInput.placeholder = useRecovery ? 'xxxxx-xxxxx' : '000000';
+  codeInput.maxLength = useRecovery ? 11 : 6;
+  codeInput.style.letterSpacing = useRecovery ? '.08em' : '.28em';
+  codeInput.value = '';
+  altLink.textContent = useRecovery ? 'Use your authenticator app instead' : 'Use a recovery code instead';
+  errorEl.style.display = 'none';
+  codeInput.focus();
 });
 
 /* An account created before consent was recorded, or one a version behind,

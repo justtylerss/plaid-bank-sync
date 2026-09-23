@@ -6572,6 +6572,7 @@ VIEWS.settings = {
         <div>${icon('check')}<span>Bank access is <b>read-only</b>. Your bank login goes to your bank through Plaid and never reaches this app, which cannot move money.</span></div>
         <div>${icon('check')}<span>Nothing lands in your books until you approve it in the inbox.</span></div>
       </div>
+      <div class="set-row"><div><div class="sr-t">Two-factor authentication</div><div class="sr-d">Require a code from an authenticator app as well as your password.</div></div><a class="btn sm" href="/security">${icon('lock')}Manage</a></div>
       <div class="set-row"><div><div class="sr-t">Privacy policy</div><div class="sr-d">What is collected, where it is stored, how long it is kept and how to delete it.</div></div><a class="btn sm" href="/privacy" target="_blank" rel="noopener">${icon('lock')}Read</a></div>
       <div class="set-row"><div><div class="sr-t">Auto-hide amounts</div><div class="sr-d">Blur every number after you've been away.</div></div>${sel('set-idle', st.idleHideMin || 0, [[0, 'Off'], [2, 'After 2 min'], [5, 'After 5 min'], [10, 'After 10 min'], [30, 'After 30 min']])}</div>
       <div class="set-row"><div><div class="sr-t">Hide amounts now</div><div class="sr-d">For screen sharing. Shortcut: H</div></div><label class="switch"><input type="checkbox" id="set-privacy" data-change="set-privacy" ${ui.privacy ? 'checked' : ''} aria-label="Hide amounts"></label></div>`);
