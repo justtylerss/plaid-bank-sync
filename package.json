@@ -8,7 +8,8 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
-    "test": "node test/test_rate.js"
+    "test": "node test/test_rate.js",
+    "graph": "node tools/graph.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.127.0",
@@ -21,6 +22,6 @@
     "plaid": "^47.0.0"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=22"
   }
 }

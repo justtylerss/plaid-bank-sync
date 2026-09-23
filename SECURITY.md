@@ -69,6 +69,12 @@ known vulnerability. Every dependency is version-pinned and a lockfile is
 committed, so a deploy installs what was reviewed rather than whatever is
 newest.
 
+**End-of-life software.** Dependabot flags vulnerable versions, not
+unsupported ones, so the runtime is tracked by hand. `engines.node` is held at
+a release line still receiving security updates and is reviewed when this
+document is reviewed. It previously read `>=18`, which permitted a Node major
+that had already reached end of life.
+
 **Patching.** Critical and high severity findings are applied within seven
 days. Everything else lands with the next change. This is an SLA one person
 can actually keep, which is the only kind worth writing down.
@@ -101,8 +107,6 @@ Stated plainly so that no one relies on a control that does not exist.
   not leave a trail in the application.
 - **No runtime monitoring or alerting.** Dependency scanning exists (section
   2); nothing watches the running application.
-- **No end-of-life software tracking.** Dependabot flags vulnerable versions,
-  not unsupported ones. Node major versions are tracked by hand.
 - **No formal access review**, because there are exactly two accounts and one
   administrator.
 - **No penetration testing or third-party assessment.**

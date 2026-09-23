@@ -3,3 +3,4 @@ node_modules/
 data/*.json
 data/ledger/
 !data/.gitkeep
+graph.html

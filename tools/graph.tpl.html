@@ -1,0 +1,176 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Codebase graph — plaid-bank-sync</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
+<style>
+  :root {
+    --bg: #fbfbfa; --panel: #fff; --text: #1a1a18; --muted: #77746c; --line: #e4e2dd;
+    --file: #3b6ea5; --route: #2f8f6b; --fn: #8a6fbf; --store: #c07a2c; --dep: #6b7280; --ext: #b3543f;
+  }
+  @media (prefers-color-scheme: dark) { :root {
+    --bg: #14150f; --panel: #1c1d17; --text: #eceadf; --muted: #918d80; --line: #2e2f27;
+    --file: #79a6de; --route: #5fc39a; --fn: #b39ae0; --store: #e0a864; --dep: #9ba1ab; --ext: #e08a72;
+  } }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.5 ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif; overflow: hidden; }
+  header { position: fixed; inset: 0 0 auto 0; z-index: 3; display: flex; gap: 12px; align-items: center;
+    flex-wrap: wrap; padding: 12px 16px; background: color-mix(in srgb, var(--bg) 88%, transparent);
+    backdrop-filter: blur(8px); border-bottom: 1px solid var(--line); }
+  h1 { font-size: 15px; margin: 0; font-weight: 600; letter-spacing: -0.01em; }
+  .count { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+  input { flex: 1; min-width: 140px; max-width: 280px; padding: 6px 10px; border-radius: 7px;
+    border: 1px solid var(--line); background: var(--panel); color: var(--text); font: inherit; font-size: 13px; }
+  .legend { display: flex; gap: 4px; flex-wrap: wrap; }
+  .legend button { display: flex; align-items: center; gap: 5px; padding: 4px 9px; border-radius: 99px;
+    border: 1px solid var(--line); background: var(--panel); color: var(--muted); font: inherit;
+    font-size: 12px; cursor: pointer; }
+  .legend button[aria-pressed="true"] { color: var(--text); border-color: currentColor; }
+  .legend i { width: 8px; height: 8px; border-radius: 99px; background: currentColor; }
+  svg { position: fixed; inset: 0; width: 100vw; height: 100vh; }
+  .link { stroke: var(--line); stroke-width: 1.1; }
+  .link.fetches { stroke-dasharray: 4 3; }
+  .node circle { stroke: var(--bg); stroke-width: 1.5; cursor: pointer; }
+  .node text { font-size: 10px; fill: var(--muted); pointer-events: none; }
+  .dim { opacity: 0.08; }
+  .node.hit circle { stroke: var(--text); stroke-width: 2; }
+  aside { position: fixed; right: 12px; bottom: 12px; z-index: 3; width: min(300px, calc(100vw - 24px));
+    padding: 12px 14px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel);
+    box-shadow: 0 6px 24px rgb(0 0 0 / 8%); display: none; }
+  aside.on { display: block; }
+  aside h2 { margin: 0 0 2px; font-size: 13px; font-family: ui-monospace, monospace; word-break: break-all; }
+  aside .kind { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
+  aside ul { margin: 8px 0 0; padding: 0; list-style: none; max-height: 34vh; overflow: auto; }
+  aside li { font-size: 12px; color: var(--muted); font-family: ui-monospace, monospace;
+    padding: 1px 0; cursor: pointer; }
+  aside li:hover { color: var(--text); }
+  aside li b { font-weight: 500; font-family: inherit; color: var(--text); }
+  @media (max-width: 640px) { .legend { width: 100%; } aside { max-height: 42vh; overflow: auto; } }
+</style>
+<header>
+  <h1>plaid-bank-sync</h1>
+  <span class="count"></span>
+  <input placeholder="Filter nodes…" autocomplete="off">
+  <span class="legend"></span>
+</header>
+<svg></svg>
+<aside><span class="kind"></span><h2></h2><ul></ul></aside>
+<script>
+const G = __DATA__;
+const TYPES = { file: 'files', route: 'routes', fn: 'functions', store: 'data', dep: 'deps', ext: 'external' };
+const color = (t) => getComputedStyle(document.documentElement).getPropertyValue('--' + t).trim();
+const off = new Set();
+
+document.querySelector('.count').textContent = G.nodes.length + ' nodes · ' + G.edges.length + ' edges';
+const legend = document.querySelector('.legend');
+legend.innerHTML = Object.entries(TYPES).map(([t, label]) =>
+  '<button data-t="' + t + '" aria-pressed="true" style="color:var(--' + t + ')"><i></i>' + label + '</button>').join('');
+legend.onclick = (e) => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  const on = b.getAttribute('aria-pressed') === 'true';
+  b.setAttribute('aria-pressed', String(!on));
+  off[on ? 'add' : 'delete'](b.dataset.t);
+  apply();
+};
+
+const deg = {};
+for (const e of G.edges) { deg[e.source] = (deg[e.source] || 0) + 1; deg[e.target] = (deg[e.target] || 0) + 1; }
+const r = (n) => 4 + Math.min(9, Math.sqrt(deg[n.id] || 1) * 2.2);
+
+const svg = d3.select('svg');
+const root = svg.append('g');
+const zoom = d3.zoom().scaleExtent([0.05, 8]).on('zoom', (e) => root.attr('transform', e.transform));
+svg.call(zoom);
+
+// measure the svg itself: innerWidth lies inside embedded/preview viewports
+const box = () => {
+  const r = svg.node().getBoundingClientRect();
+  return r.width ? r : { width: document.documentElement.clientWidth || innerWidth,
+                         height: document.documentElement.clientHeight || innerHeight };
+};
+
+function fit() {
+  const b = root.node().getBBox();
+  const v = box();
+  if (!b.width || !b.height || !v.width) return;
+  const pad = 56, top = 50;
+  const k = Math.min(1.4, (v.width - pad) / b.width, (v.height - pad - top) / b.height);
+  svg.call(zoom.transform, d3.zoomIdentity
+    .translate(v.width / 2, (v.height + top) / 2)
+    .scale(k)
+    .translate(-(b.x + b.width / 2), -(b.y + b.height / 2)));
+}
+
+const sim = d3.forceSimulation(G.nodes)
+  .force('link', d3.forceLink(G.edges).id((d) => d.id).distance((l) => l.kind === 'requires' ? 55 : 95).strength(0.35))
+  .force('charge', d3.forceManyBody().strength(-430))
+  .force('collide', d3.forceCollide().radius((d) => r(d) + 18))
+  .force('center', d3.forceCenter(0, 0))
+  .force('x', d3.forceX(0).strength(0.05))
+  .force('y', d3.forceY(0).strength(0.05))
+  .stop();
+
+const link = root.append('g').selectAll('line').data(G.edges).join('line')
+  .attr('class', (d) => 'link ' + d.kind);
+
+const node = root.append('g').selectAll('g').data(G.nodes).join('g').attr('class', 'node')
+  .call(d3.drag()
+    .on('start', (e, d) => { if (!e.active) sim.alphaTarget(0.25).restart(); d.fx = d.x; d.fy = d.y; })
+    .on('drag', (e, d) => { d.fx = e.x; d.fy = e.y; })
+    .on('end', (e, d) => { if (!e.active) sim.alphaTarget(0); d.fx = d.fy = null; }));
+node.append('circle').attr('r', r).attr('fill', (d) => color(d.type)).append('title').text((d) => d.id);
+node.append('text').attr('x', (d) => r(d) + 4).attr('dy', '0.32em').text((d) => d.label);
+node.on('click', (e, d) => { e.stopPropagation(); select(d.id); });
+
+function draw() {
+  link.attr('x1', (d) => d.source.x).attr('y1', (d) => d.source.y)
+      .attr('x2', (d) => d.target.x).attr('y2', (d) => d.target.y);
+  node.attr('transform', (d) => 'translate(' + d.x + ',' + d.y + ')');
+}
+sim.tick(320); // settle the layout up front, then draw once
+draw();
+requestAnimationFrame(fit);
+sim.on('tick', draw);
+addEventListener('resize', fit);
+
+const panel = document.querySelector('aside');
+let picked = null, query = '';
+document.querySelector('input').oninput = (e) => { query = e.target.value.toLowerCase(); apply(); };
+svg.on('click', () => select(null));
+
+function neighbors(id) {
+  const s = new Set([id]);
+  for (const e of G.edges) {
+    if (e.source.id === id) s.add(e.target.id);
+    if (e.target.id === id) s.add(e.source.id);
+  }
+  return s;
+}
+
+function select(id) {
+  picked = id;
+  panel.classList.toggle('on', !!id);
+  if (!id) { apply(); return; }
+  const n = G.nodes.find((x) => x.id === id);
+  panel.querySelector('.kind').textContent = TYPES[n.type]
+    + (n.line ? ' · server.js:' + n.line : '') + (n.loc ? ' · ' + n.loc + ' lines' : '');
+  panel.querySelector('h2').textContent = n.id;
+  panel.querySelector('ul').innerHTML = G.edges
+    .filter((e) => e.source.id === id || e.target.id === id)
+    .map((e) => e.source.id === id
+      ? '<li data-go="' + e.target.id + '"><b>' + e.kind + '</b> → ' + e.target.id + '</li>'
+      : '<li data-go="' + e.source.id + '">' + e.source.id + ' <b>' + e.kind + '</b> →</li>').join('');
+  apply();
+}
+panel.querySelector('ul').onclick = (e) => { const li = e.target.closest('li'); if (li) select(li.dataset.go); };
+
+function apply() {
+  const near = picked ? neighbors(picked) : null;
+  const vis = (d) => !off.has(d.type) && (!query || d.id.toLowerCase().includes(query)) && (!near || near.has(d.id));
+  node.classed('dim', (d) => !vis(d)).classed('hit', (d) => d.id === picked);
+  link.classed('dim', (d) => !vis(d.source) || !vis(d.target));
+}
+apply();
+</script>
