@@ -179,8 +179,21 @@ function requireAuth(req, res, next) {
     res.status(401).json({ error: 'not_authenticated' });
   }
 }
+/* Consent, recorded rather than assumed.
+
+   The privacy policy has always been published, but a published policy is a
+   statement, not an agreement. This records that a specific person agreed, at
+   a specific moment, to a specific version of what is collected.
+
+   Versioned on purpose: if what this application collects materially changes,
+   raising the version asks again rather than silently inheriting a yes that
+   was given about something else. */
+const CONSENT_VERSION = 1;
+const consentRecord = () => ({ version: CONSENT_VERSION, at: new Date().toISOString() });
+const hasConsent = (u) => !!(u && u.consent && u.consent.version >= CONSENT_VERSION);
+
 function publicUser(u) {
-  return { id: u.id, email: u.email, name: u.name || null };
+  return { id: u.id, email: u.email, name: u.name || null, consent: u.consent || null, consentCurrent: hasConsent(u) };
 }
 
 // ---------------------------------------------------------------------------
@@ -244,7 +257,10 @@ app.get(['/privacy', '/privacy-policy'], (req, res) => {
 
 app.post('/api/auth/signup', async (req, res) => {
   try {
-    const { email, password, name } = req.body || {};
+    const { email, password, name, consent } = req.body || {};
+    if (consent !== true) {
+      return res.status(400).json({ error: 'Please confirm you understand what this application collects.' });
+    }
     if (!email || !/^\S+@\S+\.\S+$/.test(email)) {
       return res.status(400).json({ error: 'Enter a valid email.' });
     }
@@ -256,7 +272,7 @@ app.post('/api/auth/signup', async (req, res) => {
     }
     const passwordHash = await bcrypt.hash(password, 10);
     const id = crypto.randomUUID();
-    const user = { id, email: email.trim(), passwordHash, name: name || null, createdAt: new Date().toISOString() };
+    const user = { id, email: email.trim(), passwordHash, name: name || null, createdAt: new Date().toISOString(), consent: consentRecord() };
     const users = getUsers();
     users[id] = user;
     saveUsers(users);
@@ -287,6 +303,20 @@ app.post('/api/auth/login', async (req, res) => {
 app.post('/api/auth/logout', (req, res) => {
   res.clearCookie(COOKIE_NAME);
   res.json({ ok: true });
+});
+
+/* Accounts that predate this, and accounts whose agreement is a version
+   behind. Authenticated, so the session is the proof of who agreed. */
+app.post('/api/auth/consent', requireAuth, (req, res) => {
+  if ((req.body || {}).consent !== true) {
+    return res.status(400).json({ error: 'Consent was not given.' });
+  }
+  const users = getUsers();
+  const user = users[req.userId];
+  if (!user) return res.status(401).json({ error: 'not_authenticated' });
+  user.consent = consentRecord();
+  saveUsers(users);
+  res.json({ ok: true, user: publicUser(user) });
 });
 
 app.get('/api/auth/me', requireAuth, (req, res) => {

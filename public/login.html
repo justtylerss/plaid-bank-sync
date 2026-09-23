@@ -32,6 +32,9 @@
   }
 }
 * { box-sizing: border-box; }
+/* An author display rule beats the UA stylesheet, so label{display:block} and
+   .consent{display:flex} both survived the hidden attribute. */
+[hidden] { display: none !important; }
 body {
   font-family: var(--font); background: var(--bg); color: var(--text);
   display: flex; align-items: center; justify-content: center;
@@ -66,6 +69,12 @@ button:disabled { opacity: .6; cursor: default; }
 .toggle { text-align: center; margin-top: 18px; font-size: 13px; color: var(--muted); }
 .toggle a { color: var(--accent-text); text-decoration: none; font-weight: 600; cursor: pointer; }
 .error { color: var(--crit); font-size: 13px; margin-top: 12px; display: none; }
+.consent { display: flex; gap: 10px; align-items: flex-start; margin-top: 18px; font-size: 12.5px; color: var(--text-2); line-height: 1.5; }
+.consent input { width: 16px; height: 16px; margin: 2px 0 0; flex: none; accent-color: var(--accent); }
+.consent a { color: var(--accent-text); text-decoration: none; font-weight: 600; }
+.consent a:hover { text-decoration: underline; }
+.consent-list { margin: 8px 0 0; padding-left: 18px; color: var(--muted); font-size: 12px; }
+.consent-list li { margin-bottom: 3px; }
 .legal { text-align: center; margin-top: 16px; font-size: 12px; color: var(--muted); }
 .legal a { color: var(--muted); text-decoration: none; }
 .legal a:hover { color: var(--text-2); text-decoration: underline; }
@@ -126,6 +135,12 @@ button:disabled { opacity: .6; cursor: default; }
       <input id="email" name="email" type="email" autocomplete="email" required>
       <label for="password">Password</label>
       <input id="password" name="password" type="password" autocomplete="current-password" required>
+      <div class="consent" id="consentField" hidden>
+        <input type="checkbox" id="consent" aria-describedby="consentText">
+        <label for="consent" id="consentText">I understand this application retrieves my bank account and transaction
+          data through Plaid and stores it, and I agree to the
+          <a href="/privacy" target="_blank" rel="noopener">privacy policy</a>.</label>
+      </div>
       <button id="submitBtn" type="submit">Sign in</button>
       <div class="error" id="error"></div>
     </form>
@@ -143,6 +158,7 @@ button:disabled { opacity: .6; cursor: default; }
 let mode = 'login';
 const $ = (s) => document.querySelector(s);
 const title = $('#title'), subtitle = $('#subtitle'), nameField = $('#nameField');
+const consentField = $('#consentField'), consentBox = $('#consent');
 const submitBtn = $('#submitBtn'), toggleText = $('#toggleText'), toggleLink = $('#toggleLink');
 const errorEl = $('#error'), passwordInput = $('#password');
 
@@ -164,6 +180,8 @@ function applyMode() {
     toggleLink.textContent = 'Sign in';
     passwordInput.autocomplete = 'new-password';
   }
+  consentField.hidden = mode !== 'signup';
+  if (mode !== 'signup') consentBox.checked = false;
   errorEl.style.display = 'none';
 }
 toggleLink.addEventListener('click', () => { mode = mode === 'login' ? 'signup' : 'login'; applyMode(); });
@@ -173,13 +191,30 @@ $('#form').addEventListener('submit', async (e) => {
   errorEl.style.display = 'none';
   submitBtn.disabled = true;
   try {
+    if (mode === 'consent') {
+      if (!consentBox.checked) throw new Error('Please confirm to continue.');
+      const r = await fetch('/api/auth/consent', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ consent: true }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || 'Could not record that.');
+      window.location.href = '/';
+      return;
+    }
     const body = { email: $('#email').value.trim(), password: passwordInput.value };
-    if (mode === 'signup') body.name = $('#name').value.trim();
+    if (mode === 'signup') {
+      if (!consentBox.checked) throw new Error('Please confirm you understand what this application collects.');
+      body.name = $('#name').value.trim();
+      body.consent = true;
+    }
     const res = await fetch(mode === 'login' ? '/api/auth/login' : '/api/auth/signup', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Something went wrong.');
+    // An account created before consent was recorded, or one a version behind,
+    // agrees here rather than being assumed to have agreed already.
+    if (data.user && !data.user.consentCurrent) { askExistingConsent(); return; }
     window.location.href = '/';
   } catch (err) {
     errorEl.textContent = err.message;
@@ -188,6 +223,27 @@ $('#form').addEventListener('submit', async (e) => {
     submitBtn.disabled = false;
   }
 });
+
+/* An account created before consent was recorded, or one a version behind,
+   agrees here. Sign-in has already succeeded and set the session cookie, so
+   this posts as that person — the session is the proof of who agreed. */
+function askExistingConsent() {
+  mode = 'consent';
+  title.textContent = 'One thing before you continue';
+  subtitle.textContent = 'Your account predates this step. Nothing has changed about what is collected.';
+  nameField.hidden = true;
+  for (const id of ['email', 'password']) {
+    const f = $('#' + id);
+    f.hidden = true;
+    f.required = false;
+    if (f.previousElementSibling) f.previousElementSibling.hidden = true;
+  }
+  consentField.hidden = false;
+  consentBox.checked = false;
+  submitBtn.textContent = 'Agree and continue';
+  $('.toggle').hidden = true;
+  errorEl.style.display = 'none';
+}
 
 applyMode();
 </script>
