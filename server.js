@@ -362,8 +362,11 @@ app.get(['/privacy', '/privacy-policy'], (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'privacy.html'));
 });
 
+/* Lives outside public/ on purpose. Anything in there is served by
+   express.static before this route runs, so a page kept there would be
+   reachable at /security.html with the guard walked straight past. */
 app.get('/security', requireAuth, (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'security.html'));
+  res.sendFile(path.join(__dirname, 'views', 'security.html'));
 });
 
 // ---- Auth routes -----------------------------------------------------------
