@@ -31,6 +31,9 @@
   --ease-out: cubic-bezier(.34, 1.8, .64, 1);
   --dur-2: 260ms; --dur-3: 420ms;
   --rail-ease: cubic-bezier(.34, 1.56, .64, 1);
+  /* Bank Sync <-> Ledger: a full-width push that overshoots, instead of the
+     short fade-and-slide the other themes use. */
+  --vt-shift: 100%; --vt-fade: 1;
 }
 
 /* ---------- Colourways ---------- */

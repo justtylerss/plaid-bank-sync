@@ -1008,6 +1008,24 @@ body.compact .table td { padding-top: 8px; padding-bottom: 8px; }
 :root[data-motion="full"] .progress i, :root[data-motion="full"] .rep-bar i {
   animation: grow 520ms var(--ease-out) backwards; transform-origin: left center; }
 
+/* Moving between Bank Sync and the Ledger slides sideways in the order of
+   the tabs, so the Ledger arrives from the right. The incoming page runs the
+   transition, which is why each page only styles its own arrival; Bank Sync
+   has the mirror of this. Browsers without cross-document view transitions
+   just navigate as before. The kill switches above use *, which does not
+   reach these pseudo-elements, so they are repeated here. */
+@view-transition { navigation: auto; }
+::view-transition-old(root) { animation: vtOutLeft var(--dur-3) var(--ease-out) both; }
+::view-transition-new(root) { animation: vtInRight var(--dur-3) var(--ease-out) both; }
+@keyframes vtOutLeft { to { opacity: var(--vt-fade, 0); transform: translateX(calc(var(--vt-shift, 48px) * -1)); } }
+@keyframes vtInRight { from { opacity: var(--vt-fade, 0); transform: translateX(var(--vt-shift, 48px)); } }
+@media (prefers-reduced-motion: reduce) {
+  :root:not([data-motion="full"])::view-transition-old(root),
+  :root:not([data-motion="full"])::view-transition-new(root) { animation: none; }
+}
+:root[data-motion="off"]::view-transition-old(root),
+:root[data-motion="off"]::view-transition-new(root) { animation: none; }
+
 /* ============ v2: boot ============ */
 .boot { min-height: 70vh; display: grid; place-content: center; justify-items: center; gap: 14px; text-align: center; padding-inline: 16px; }
 .boot-bar { width: 180px; height: 4px; border-radius: 4px; background: var(--surface-3); overflow: hidden; }

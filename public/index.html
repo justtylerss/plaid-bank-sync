@@ -172,12 +172,32 @@ svg.i { width: 18px; height: 18px; flex: none; stroke: currentColor; fill: none;
   --c4: #e87ba4; --c5: #9085e9; --c6: #4ec3d9; --c7: #c2705f;
   --shadow: 0 24px 60px rgba(0,0,0,.72);
 }
+
+/* ============ Page transition ============
+   Moving between Bank Sync and the Ledger slides sideways in the order of
+   the tabs, so Bank Sync arrives from the left. The incoming page runs the
+   transition, which is why each page only styles its own arrival. Browsers
+   without cross-document view transitions just navigate as before. */
+@view-transition { navigation: auto; }
+::view-transition-old(root) { animation: vtOutRight var(--dur-3, 280ms) var(--ease-out, cubic-bezier(0, 0, .2, 1)) both; }
+::view-transition-new(root) { animation: vtInLeft var(--dur-3, 280ms) var(--ease-out, cubic-bezier(0, 0, .2, 1)) both; }
+@keyframes vtOutRight { to { opacity: var(--vt-fade, 0); transform: translateX(var(--vt-shift, 48px)); } }
+@keyframes vtInLeft { from { opacity: var(--vt-fade, 0); transform: translateX(calc(var(--vt-shift, 48px) * -1)); } }
+@media (prefers-reduced-motion: reduce) {
+  :root:not([data-motion="full"])::view-transition-old(root),
+  :root:not([data-motion="full"])::view-transition-new(root) { animation: none; }
+}
+:root[data-motion="off"]::view-transition-old(root),
+:root[data-motion="off"]::view-transition-new(root) { animation: none; }
 </style>
 <link rel="stylesheet" href="/theme-pop.css">
 <script>
 (function () {
   try {
     var t = localStorage.getItem('lvc-theme');
+    /* The Ledger's Animation setting, so this page honours it too. */
+    var mo = localStorage.getItem('lvc-motion') || 'full';
+    if (mo !== 'system') document.documentElement.setAttribute('data-motion', mo);
     if (t && t !== 'system') document.documentElement.setAttribute('data-theme', t);
   } catch (e) { /* private mode: fall back to the system theme */ }
 })();
