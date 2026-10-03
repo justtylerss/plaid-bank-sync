@@ -1190,6 +1190,7 @@ function parseMoney(str) {
   let neg = false;
   if (/^\(.*\)$/.test(s)) { neg = true; s = s.slice(1, -1); }
   s = s.replace(/[$,\s]/g, '').replace(/^USD/i, '');
+  if (s.startsWith('+')) s = s.slice(1);   // some banks mark credits "+12.00"
   if (s.startsWith('-')) { neg = !neg; s = s.slice(1); }
   if (s.endsWith('-')) { neg = !neg; s = s.slice(0, -1); }
   if (!/^\d*\.?\d+$|^\d+\.$/.test(s)) return NaN;
@@ -1306,7 +1307,7 @@ function timeAgo(iso) {
 /* ---------- CSV ---------- */
 function parseCSV(text) {
   const rows = []; let row = []; let f = ''; let q = false;
-  text = String(text).replace(/^﻿/, '');
+  text = String(text).replace(/^\uFEFF/, '');
   for (let i = 0; i < text.length; i++) {
     const c = text[i];
     if (q) {
@@ -1325,16 +1326,19 @@ function parseCSV(text) {
   if (row.some((x) => x.trim() !== '')) rows.push(row);
   return rows;
 }
-/* Guards against spreadsheet formula injection in exported text cells */
-function csvCell(v, isText = true) {
+/* Guards against spreadsheet formula injection: a cell starting with = + - @
+   is made text with a leading apostrophe. Decided by what the cell holds,
+   not by which column it is in, so plain numbers (negative ones included)
+   stay numbers and nothing else gets through on a column's say-so. The CSV
+   importer strips the apostrophe again. */
+function csvCell(v) {
   let s = String(v ?? '');
-  if (isText && /^[=+\-@\t\r]/.test(s)) s = "'" + s;
+  if (/^[=+\-@\t\r]/.test(s) && !/^-?\d+(\.\d+)?$/.test(s)) s = "'" + s;
   return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
-function toCSV(header, rows, numericCols = []) {
-  const lines = [header.map((h) => csvCell(h)).join(',')];
-  for (const r of rows) lines.push(r.map((v, i) => csvCell(v, !numericCols.includes(i))).join(','));
-  return lines.join('\r\n');
+// The byte-order mark is what makes Excel read the file as UTF-8.
+function toCSV(header, rows) {
+  return '\uFEFF' + [header, ...rows].map((r) => r.map((v) => csvCell(v)).join(',')).join('\r\n');
 }
 async function downloadFile(name, content, type = 'text/plain') {
   const dl = typeof Cloud !== 'undefined' ? Cloud.caps.downloads : null;
@@ -4103,7 +4107,7 @@ function exportTxCSV(list, name) {
     const c = catOf(t.cat), p = pmOf(t.pm), b = t.biz && bizOf(t.biz.b), bc = t.biz && bizCatOf(t.biz.c);
     return [t.date, t.type, t.desc, c ? c.name : '', ((t.type === 'expense' ? -t.amount : t.amount) / 100).toFixed(2), p ? p.name : '', p ? p.last4 || '' : '', b ? b.name : '', bc ? bc.name : '', t.biz && t.type === 'expense' ? t.biz.pct : '', t.biz && t.type === 'expense' ? (deductible(t) / 100).toFixed(2) : '', t.biz ? t.biz.firm || '' : '', t.notes || '', (t.tags || []).join(' ')];
   });
-  downloadFile(name, toCSV(['Date', 'Type', 'Description', 'Category', 'Amount', 'Paid with', 'Card last 4', 'Business', 'Write-off category', 'Business use %', 'Deductible', 'Prop firm', 'Notes', 'Tags'], rows, [4, 9, 10]), 'text/csv');
+  downloadFile(name, toCSV(['Date', 'Type', 'Description', 'Category', 'Amount', 'Paid with', 'Card last 4', 'Business', 'Write-off category', 'Business use %', 'Deductible', 'Prop firm', 'Notes', 'Tags'], rows), 'text/csv');
 }
 
 /* =========================================================
@@ -4420,6 +4424,9 @@ const CHANGELOG = [
     items: [
       'Bank Sync now lives inside the Ledger, under Bank Sync in the sidebar, instead of being a separate page. Moving between it and the rest of the Ledger slides sideways, in every browser that supports view transitions, Firefox included. The old address still works and brings you here.',
       'Six loud Pop themes under Settings → Theme: Lime, Sunset, Mint, Grape, Newsprint and Night arcade. Thick outlines, hard shadows and springy motion; the Animation setting still turns the motion off.',
+      'CSV import reads more banks correctly: Bank of America files with a summary above the data, Wells Fargo files with no header row, Chase checking’s extra Details column, and card exports (Amex, Discover) where purchases are positive numbers. Amounts like +12.00 are understood too.',
+      'Every CSV export, including Bank Sync’s, now opens in Excel with accented names intact, and any cell that could run as a spreadsheet formula, such as a payment memo starting with =, is saved as plain text.',
+      'PDF statements can be read again on the live site; the security policy had been blocking the PDF reader.',
     ],
   },
   {
@@ -6247,12 +6254,12 @@ ACT['biz-export'] = async () => {
     return [t.date, t.type === 'income' ? 'Income' : 'Expense', b ? b.name : '', t.type === 'income' ? '' : bc ? bc.name : '', t.desc, t.biz.firm || '', p ? p.name : '', p ? p.last4 || '' : '', (t.amount / 100).toFixed(2), t.type === 'expense' ? t.biz.pct : '', t.type === 'expense' ? (deductible(t) / 100).toFixed(2) : '', t.type === 'expense' ? (bc && bc.depreciable ? 'yes' : 'no') : '', t.notes || ''];
   });
   const tag = ui.bizTab === 'all' ? 'all' : norm((bizOf(ui.bizTab) || {}).name || 'biz').replace(/[^a-z0-9]+/g, '-');
-  const saved = await downloadFile(`business-${y}-${tag}.csv`, toCSV(['Date', 'Type', 'Business', 'Write-off category', 'Description', 'Prop firm / vendor', 'Paid with', 'Card last 4', 'Amount', 'Business use %', 'Deductible amount', 'Possible depreciation', 'Notes'], rows, [8, 9, 10]), 'text/csv');
+  const saved = await downloadFile(`business-${y}-${tag}.csv`, toCSV(['Date', 'Type', 'Business', 'Write-off category', 'Description', 'Prop firm / vendor', 'Paid with', 'Card last 4', 'Amount', 'Business use %', 'Deductible amount', 'Possible depreciation', 'Notes'], rows), 'text/csv');
   if (saved && d.trips.length) await downloadFile(`mileage-${y}-${tag}.csv`, mileageCSV(d.trips), 'text/csv');
 };
 function mileageCSV(trips) {
   const rows = trips.slice().sort((a, b) => (a.date < b.date ? -1 : 1)).map((t) => [t.date, (bizOf(t.b) || {}).name || '', t.from || '', t.to || '', t.purpose || '', Number(t.miles).toFixed(1), (mileageRate(t.date) / 100).toFixed(3), (tripDeduction(t) / 100).toFixed(2)]);
-  return toCSV(['Date', 'Business', 'From', 'To', 'Business purpose', 'Miles', 'Rate ($/mi)', 'Deduction'], rows, [5, 6, 7]);
+  return toCSV(['Date', 'Business', 'From', 'To', 'Business purpose', 'Miles', 'Rate ($/mi)', 'Deduction'], rows);
 }
 
 /* ---------- Prop Firms ---------- */
@@ -7223,17 +7230,39 @@ ACT['csv-import'] = async () => {
   csvImportModal(rows, f.name);
 };
 function csvImportModal(rows, fileName) {
-  const header = rows[0].map((h) => String(h).trim());
-  const data = rows.slice(1);
-  const find = (re) => { const i = header.findIndex((h) => re.test(h)); return i >= 0 ? String(i) : ''; };
-  const guess = {
+  /* Bank exports differ more than the format suggests. Bank of America puts
+     a summary block above the real header, Wells Fargo sends no header at
+     all, Chase checking leads with a "Details" column that only says DEBIT or
+     CREDIT, and card issuers such as Amex and Discover show spending as
+     positive numbers. Everything worked out here is only the starting choice;
+     the modal shows each one with a preview. */
+  const looksHeader = (r) => r.some((c) => /date|posted/i.test(c)) && r.some((c) => /amount|debit|credit|withdraw|deposit/i.test(c));
+  const hi = rows.slice(0, 10).findIndex(looksHeader);
+  const headerless = hi < 0 && rows[0].some((c) => parseLooseDate(c));
+  const header = headerless ? rows[0].map((_, i) => `Column ${i + 1}`) : rows[Math.max(hi, 0)].map((h) => String(h).trim());
+  const data = rows.slice(headerless ? 0 : Math.max(hi, 0) + 1);
+  // Patterns in order of preference, so "Description" wins over "Details".
+  const find = (...res) => { for (const re of res) { const i = header.findIndex((h) => re.test(h)); if (i >= 0) return String(i); } return ''; };
+  // With no header, read the first row: its date, its first other number, its longest text.
+  const first = data[0] || [];
+  const at = (test) => { const i = first.findIndex(test); return i >= 0 ? String(i) : ''; };
+  const guess = headerless ? {
+    date: at((c) => parseLooseDate(c)) || '0',
+    desc: String(first.reduce((b, c, i) => (String(c).length > String(first[b]).length ? i : b), 0)),
+    amount: at((c) => !parseLooseDate(c) && !isNaN(parseMoney(c))),
+    debit: '', credit: '',
+  } : {
     date: find(/date|posted/i) || '0',
-    desc: find(/desc|memo|payee|merchant|name|details|narrative/i) || '1',
-    amount: find(/^amount$|amount|value/i),
+    desc: find(/desc/i, /payee|merchant|name/i, /memo|details|narrative/i) || '1',
+    amount: find(/^amount$/i, /amount|value/i),
     debit: find(/debit|withdraw|charge/i),
     credit: find(/credit|deposit|payment/i),
   };
   const mode0 = guess.amount ? 'single' : guess.debit && guess.credit ? 'split' : 'single';
+  // Most rows in any account are spending, so whichever sign most amounts
+  // carry is the one spending uses in this file.
+  const amts = guess.amount ? data.map((r) => parseMoney(r[Number(guess.amount)])).filter((c) => c) : [];
+  const sign0 = amts.filter((c) => c > 0).length > amts.length / 2 ? 'pos' : 'neg';
   const colOpts = (sel, allowNone) => (allowNone ? '<option value="">—</option>' : '') + header.map((h, i) => `<option value="${i}" ${String(i) === sel ? 'selected' : ''}>${esc(h || `Column ${i + 1}`)}</option>`).join('');
   const body = `<p class="text-2 small" style="margin-bottom:14px"><b>${esc(fileName)}</b> · ${plural(data.length, 'row')}. Match the columns, check the preview, import. Nothing leaves your device.</p>
     <div class="form-grid">
@@ -7241,7 +7270,7 @@ function csvImportModal(rows, fileName) {
       ${UI.field('Description column', `<select class="select" name="cDesc">${colOpts(guess.desc)}</select>`)}
       ${UI.field('Amounts are in', `<select class="select" name="mode"><option value="single" ${mode0 === 'single' ? 'selected' : ''}>One column</option><option value="split" ${mode0 === 'split' ? 'selected' : ''}>Separate debit & credit columns</option></select>`)}
       <div class="f-single">${UI.field('Amount column', `<select class="select" name="cAmt">${colOpts(guess.amount || '2')}</select>`)}</div>
-      <div class="f-single">${UI.field('Spending shows as', '<select class="select" name="sign"><option value="neg">Negative numbers (most banks)</option><option value="pos">Positive numbers (many credit cards)</option></select>')}</div>
+      <div class="f-single">${UI.field('Spending shows as', `<select class="select" name="sign"><option value="neg" ${sign0 === 'neg' ? 'selected' : ''}>Negative numbers (most banks)</option><option value="pos" ${sign0 === 'pos' ? 'selected' : ''}>Positive numbers (many credit cards)</option></select>`)}</div>
       <div class="f-split">${UI.field('Debit (money out)', `<select class="select" name="cDebit">${colOpts(guess.debit, true)}</select>`)}</div>
       <div class="f-split">${UI.field('Credit (money in)', `<select class="select" name="cCredit">${colOpts(guess.credit, true)}</select>`)}</div>
       ${UI.field('Paid with', `<select class="select" name="pm">${pmOptions('')}</select>`)}
@@ -7266,7 +7295,8 @@ function csvImportModal(rows, fileName) {
         parsed = [];
         for (const r of data) {
           const date = parseLooseDate(r[Number(g('cDate'))]);
-          const desc = String(r[Number(g('cDesc'))] || '').trim().replace(/\s+/g, ' ').slice(0, 120);
+          // The apostrophe is the formula guard an export adds; drop it on the way back in.
+          const desc = String(r[Number(g('cDesc'))] || '').trim().replace(/^'(?=[=+\-@])/, '').replace(/\s+/g, ' ').slice(0, 120);
           let cents;
           if (split) {
             const d = g('cDebit') ? parseMoney(r[Number(g('cDebit'))]) : NaN;

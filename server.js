@@ -314,15 +314,17 @@ app.set('trust proxy', 1); // so req.secure is correct behind Railway's proxy
    Railway terminates TLS and redirects HTTP to HTTPS, but sends nothing that
    tells the browser how to treat the page. These do.
 
-   The content policy is an allowlist of the four origins the app genuinely
-   uses — Plaid Link, Google Fonts, and itself. 'unsafe-inline' is present
+   The content policy is an allowlist of the origins the app genuinely
+   uses — Plaid Link, Google Fonts, pdf.js, and itself. 'unsafe-inline' is present
    because the pages are deliberately single-file with inline script and style;
    it weakens the protection against injected inline code but still stops an
    attacker loading script from anywhere else. img-src allows any https origin
    because goal pictures are pasted from arbitrary product pages. */
 const CSP = [
   "default-src 'self'",
-  "script-src 'self' 'unsafe-inline' https://cdn.plaid.com",
+  // The pdf.js entry is that one version's folder, not all of cdnjs: the
+  // Ledger loads it on demand to read PDF statements.
+  "script-src 'self' 'unsafe-inline' https://cdn.plaid.com https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/",
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "font-src 'self' https://fonts.gstatic.com",
   "img-src 'self' data: blob: https:",
@@ -1195,17 +1197,28 @@ app.get('/api/export.csv', requireAuth, (req, res) => {
     .filter((t) => t.userId === req.userId)
     .sort((a, b) => (a.date < b.date ? -1 : 1));
 
-  const esc = (s) => `"${String(s ?? '').replace(/"/g, '""')}"`;
+  // Descriptions are partly written by other people (a Zelle or Venmo memo
+  // lands here verbatim), so one starting with = + - @ would run as a formula
+  // when the file is opened in a spreadsheet. A leading apostrophe makes it
+  // text; plain numbers are left alone. The Ledger's importer strips it again.
+  const esc = (s) => {
+    let v = String(s ?? '');
+    if (/^[=+\-@\t\r]/.test(v) && !/^-?\d+(\.\d+)?$/.test(v)) v = "'" + v;
+    return `"${v.replace(/"/g, '""')}"`;
+  };
   const rows = [['Date', 'Description', 'Amount']];
   for (const t of tx) {
     if (t.pending) continue; // wait for it to post before exporting
     const amount = (-t.amount).toFixed(2); // flip Plaid's sign convention
     rows.push([t.date, t.merchant_name || t.name, amount]);
   }
-  const csv = rows.map((r) => r.map(esc).join(',')).join('\n');
+  // The byte-order mark is what makes Excel read the file as UTF-8 rather
+  // than mangling accented merchant names.
+  const csv = '\uFEFF' + rows.map((r) => r.map(esc).join(',')).join('\r\n');
 
-  res.setHeader('Content-Type', 'text/csv');
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
   res.setHeader('Content-Disposition', 'attachment; filename="bank-transactions.csv"');
+  res.setHeader('Cache-Control', 'no-store'); // a full transaction history; never keep a copy
   res.send(csv);
 });
 
