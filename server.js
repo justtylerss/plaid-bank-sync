@@ -355,6 +355,11 @@ app.use(express.json());
 app.use(cookieParser());
 app.use(express.static(path.join(__dirname, 'public')));
 
+// Bank Sync lives inside the Ledger now. Old bookmarks, the post-login
+// redirect and Plaid's OAuth return (PLAID_REDIRECT_URI) all still point
+// here, so the query string is carried through.
+app.get('/', (req, res) => res.redirect('/ledger/' + req.url.slice(1) + '#/banksync'));
+
 // A clean URL for the privacy policy. It is deliberately outside the auth
 // gate: the point of a privacy policy is that you can read it before handing
 // anything over, and it is the link given to Plaid.

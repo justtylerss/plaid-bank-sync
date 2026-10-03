@@ -1008,23 +1008,35 @@ body.compact .table td { padding-top: 8px; padding-bottom: 8px; }
 :root[data-motion="full"] .progress i, :root[data-motion="full"] .rep-bar i {
   animation: grow 520ms var(--ease-out) backwards; transform-origin: left center; }
 
-/* Moving between Bank Sync and the Ledger slides sideways in the order of
-   the tabs, so the Ledger arrives from the right. The incoming page runs the
-   transition, which is why each page only styles its own arrival; Bank Sync
-   has the mirror of this. Browsers without cross-document view transitions
-   just navigate as before. The kill switches above use *, which does not
-   reach these pseudo-elements, so they are repeated here. */
-@view-transition { navigation: auto; }
-::view-transition-old(root) { animation: vtOutLeft var(--dur-3) var(--ease-out) both; }
-::view-transition-new(root) { animation: vtInRight var(--dur-3) var(--ease-out) both; }
+/* Moving between Bank Sync and the rest of the Ledger slides the main area
+   sideways (see the hashchange handler); data-slide says which way the
+   content travels. The main area is only named while that runs, and is
+   clipped to its own box so the sidebar stays put and just cross-fades its
+   active link. The kill switches above use *, which does not reach these
+   pseudo-elements, so they are repeated here. */
+:root[data-slide] .main { view-transition-name: main; }
+::view-transition-group(main) { overflow: clip; }
+:root[data-slide="left"]::view-transition-old(main) { animation: vtOutLeft var(--dur-3) var(--ease-out) both; }
+:root[data-slide="left"]::view-transition-new(main) { animation: vtInRight var(--dur-3) var(--ease-out) both; }
+:root[data-slide="right"]::view-transition-old(main) { animation: vtOutRight var(--dur-3) var(--ease-out) both; }
+:root[data-slide="right"]::view-transition-new(main) { animation: vtInLeft var(--dur-3) var(--ease-out) both; }
 @keyframes vtOutLeft { to { opacity: var(--vt-fade, 0); transform: translateX(calc(var(--vt-shift, 48px) * -1)); } }
 @keyframes vtInRight { from { opacity: var(--vt-fade, 0); transform: translateX(var(--vt-shift, 48px)); } }
+@keyframes vtOutRight { to { opacity: var(--vt-fade, 0); transform: translateX(var(--vt-shift, 48px)); } }
+@keyframes vtInLeft { from { opacity: var(--vt-fade, 0); transform: translateX(calc(var(--vt-shift, 48px) * -1)); } }
 @media (prefers-reduced-motion: reduce) {
-  :root:not([data-motion="full"])::view-transition-old(root),
-  :root:not([data-motion="full"])::view-transition-new(root) { animation: none; }
+  :root:not([data-motion="full"])::view-transition-group(*),
+  :root:not([data-motion="full"])::view-transition-old(*),
+  :root:not([data-motion="full"])::view-transition-new(*) { animation: none !important; }
 }
-:root[data-motion="off"]::view-transition-old(root),
-:root[data-motion="off"]::view-transition-new(root) { animation: none; }
+:root[data-motion="off"]::view-transition-group(*),
+:root[data-motion="off"]::view-transition-old(*),
+:root[data-motion="off"]::view-transition-new(*) { animation: none !important; }
+
+/* ============ Bank Sync ============ */
+.bs-day { font-size: 12px; font-weight: 600; color: var(--muted); padding: 14px 0 4px; }
+.bs-day:first-child { padding-top: 0; }
+.ico-tile.bs-ini { font-size: 12px; font-weight: 650; }
 
 /* ============ v2: boot ============ */
 .boot { min-height: 70vh; display: grid; place-content: center; justify-items: center; gap: 14px; text-align: center; padding-inline: 16px; }
@@ -3092,7 +3104,7 @@ function sidebarHTML() {
   return `<div class="brand"><span class="brand-mark">${BRAND_SVG}</span><span>Ledger Vault<small>Cloud</small></span><button class="rail-lock" data-act="rail-lock" aria-pressed="${ui.railLock ? 'true' : 'false'}" title="${ui.railLock ? 'Unpin the sidebar' : 'Keep the sidebar open'}">${icon('lock')}</button></div>${nav}
     <div class="side-foot">
       <nav class="nav">
-        <a href="/">${icon('landmark')}<span>Bank Sync</span></a>
+        <a href="#/banksync" class="${ui.view === 'banksync' ? 'active' : ''}" ${ui.view === 'banksync' ? 'aria-current="page"' : ''}>${icon('landmark')}<span>Bank Sync</span></a>
         <a href="#/settings" class="${ui.view === 'settings' ? 'active' : ''}">${icon('sliders')}<span>Settings & Privacy</span></a>
       </nav>
       <div class="save-status" id="save-status"><span class="led"></span><span class="t">Synced · private to you</span></div>
@@ -3157,11 +3169,22 @@ function go(view) {
 const parseHash = () => { const v = location.hash.replace(/^#\/?/, '').split('?')[0]; return VIEWS[v] ? v : 'transactions'; };
 window.addEventListener('hashchange', () => {
   if (!S) return;
+  const from = ui.view;
   ui.view = parseHash();
   ui.animateIn = true;
   document.body.classList.remove('nav-open');
-  render();
-  window.scrollTo(0, 0);
+  const swap = () => { render(); window.scrollTo(0, 0); };
+  /* Crossing between Bank Sync and the rest of the Ledger slides the main
+     area sideways, in the order the two used to sit as tabs: Bank Sync on the
+     left. A same-document view transition, so it works in Firefox too. The
+     slide replaces the usual rise rather than playing on top of it. */
+  if ((from === 'banksync') === (ui.view === 'banksync') || !document.startViewTransition) return swap();
+  ui.animateIn = false;
+  const root = document.documentElement;
+  root.dataset.slide = ui.view === 'banksync' ? 'right' : 'left';
+  const vt = document.startViewTransition(swap);
+  vt.ready.catch(() => {});   // skipped, e.g. in a background tab: the swap still happens
+  vt.finished.finally(() => { delete root.dataset.slide; });
 });
 
 /* ---------- Modals ---------- */
@@ -4341,7 +4364,7 @@ ACT['rec-detect'] = async () => {
     render();
     toast(parts.join(' · '));
     if (!live.length && !errors.length) {
-      toast('Plaid needs a few months of history to spot patterns. Banks linked before the history setting existed only have 90 days — reconnect them to get more.', '', { label: 'Bank Sync', fn: () => { window.location.href = '/'; } });
+      toast('Plaid needs a few months of history to spot patterns. Banks linked before the history setting existed only have 90 days — reconnect them to get more.', '', { label: 'Bank Sync', fn: () => go('banksync') });
     }
   } catch (e) {
     console.error(e);
@@ -4392,6 +4415,13 @@ const PM_TYPES = { credit: 'Credit', debit: 'Debit', bank: 'Bank / ACH', cash: '
 // Shown in Settings under "What's new". Add a line here whenever something
 // user-visible changes — newest group first.
 const CHANGELOG = [
+  {
+    date: 'Oct 3, 2026',
+    items: [
+      'Bank Sync now lives inside the Ledger, under Bank Sync in the sidebar, instead of being a separate page. Moving between it and the rest of the Ledger slides sideways, in every browser that supports view transitions, Firefox included. The old address still works and brings you here.',
+      'Six loud Pop themes under Settings → Theme: Lime, Sunset, Mint, Grape, Newsprint and Night arcade. Thick outlines, hard shadows and springy motion; the Animation setting still turns the motion off.',
+    ],
+  },
   {
     date: 'Sep 19, 2026',
     items: [
@@ -5338,6 +5368,236 @@ function coverageHTML() {
     { cls: 's12', actions: `<button class="btn sm" data-act="coverage-load" ${COVERAGE.loading ? 'disabled' : ''}>${COVERAGE.loading ? 'Checking…' : 'Refresh'}</button>` });
 }
 
+/* =========================================================
+   Bank Sync
+   ========================================================= */
+/* What used to be its own page at /. Living inside the Ledger makes moving
+   between the two a view change instead of a page load, which is what lets
+   it slide in every browser (see the hashchange handler). Its data is the
+   server's Plaid tables rather than the vault, so it is fetched on the first
+   visit and again after anything that changes it. Plaid amounts arrive in
+   dollars, positive meaning money out. */
+const BS = { accounts: null, items: null, tx: null, days: '730', loading: false, failed: false };
+const BS_ASSET = new Set(['depository', 'investment']);
+const BS_LIAB = new Set(['credit', 'loan']);
+const BS_SLOT_NOTE = 'Reconnecting later costs a Plaid connection slot, and on the free plan slots are not returned when you disconnect. Only do this if you are sure.';
+const bsCents = (dollars) => Math.round((Number(dollars) || 0) * 100);
+const bsInitials = (s) => s.trim().split(/\s+/).slice(0, 2).map((w) => w[0]).join('').toUpperCase();
+const bsColor = (s) => { let h = 0; for (const ch of s) h = (h * 31 + ch.charCodeAt(0)) >>> 0; return colorVar(h); };
+function bsDay(s) {
+  const n = daysBetween(s, todayStr());
+  if (n === 0) return 'Today';
+  if (n === 1) return 'Yesterday';
+  return parseD(s).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', ...(s.slice(0, 4) !== todayStr().slice(0, 4) ? { year: 'numeric' } : {}) });
+}
+// Plaid fixes the history window when a bank is linked and will not let it
+// be raised afterwards, which is why it is asked up front.
+function bsHistory(it) {
+  const d = Number(it.days_requested);
+  if (!d) return '<b>90 days</b> of history · reconnect for more';
+  if (d >= 700) return `${Math.round(d / 365)} years of history`;
+  if (d >= 360) return '1 year of history';
+  return `<b>${d} days</b> of history · reconnect for more`;
+}
+function bsDays() {
+  if (BS.days !== 'ytd') return Number(BS.days) || 730;
+  const now = new Date();
+  return Math.max(1, Math.ceil((now - new Date(now.getFullYear(), 0, 1)) / 86400000));
+}
+async function bsApi(path, opts) {
+  const res = await fetch(path, opts);
+  if (res.status === 401) { window.location.href = '/login.html'; throw new Error('Not signed in.'); }
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error ? JSON.stringify(body.error) : `${res.status} ${res.statusText}`);
+  }
+  return res.json();
+}
+const bsPost = (path, body) => bsApi(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+async function bsLoad() {
+  BS.loading = true;
+  try {
+    [BS.accounts, BS.items, BS.tx] = await Promise.all([bsApi('/api/accounts'), bsApi('/api/items'), bsApi('/api/transactions')]);
+    BS.failed = false;
+  } catch (e) {
+    console.error(e);
+    BS.failed = !BS.accounts;
+    toast('Could not load Bank Sync: ' + e.message, 'err');
+  }
+  BS.loading = false;
+  if (ui.view === 'banksync') render();
+}
+/* Plaid Link's script is loaded on first use, so it never runs alongside
+   your books unless you are actually connecting a bank. Resolves with the
+   public token and metadata, or null if you backed out. */
+async function plaidLink(token) {
+  if (!window.Plaid) await loadScript('https://cdn.plaid.com/link/v2/stable/link-initialize.js');
+  return new Promise((resolve) => {
+    window.Plaid.create({
+      token,
+      onSuccess: (public_token, metadata) => resolve({ public_token, metadata }),
+      onExit: (err) => { if (err) console.error(err); resolve(null); },
+    }).open();
+  });
+}
+// A new connection. Resolves with the server's exchange result, or null.
+async function bsLinkNew(days) {
+  const { link_token } = await bsPost('/api/create_link_token', { days });
+  const got = await plaidLink(link_token);
+  if (!got) return null;
+  toast('Linking account…');
+  return bsPost('/api/exchange_public_token', { public_token: got.public_token, institution_name: got.metadata?.institution?.name, days });
+}
+
+VIEWS.banksync = {
+  title: 'Bank Sync',
+  render() {
+    const loaded = !!BS.accounts;
+    let assets = 0, owed = 0;
+    for (const a of BS.accounts || []) {
+      const c = Number(a.balances && a.balances.current);
+      if (!Number.isFinite(c)) continue;
+      if (BS_ASSET.has(a.type)) assets += c; else if (BS_LIAB.has(a.type)) owed += c;
+    }
+    const net = bsCents(assets - owed);
+    const items = BS.items || [];
+    const sub = !loaded ? 'Loading your connected banks…'
+      : !BS.accounts.length ? 'Connect a bank to see it here.'
+      : owed > 0 ? `${amt(bsCents(assets))} in accounts · ${amt(bsCents(owed))} owed`
+      : `Across ${plural(BS.accounts.length, 'connected account')}`;
+    const opt = (v, t) => `<option value="${v}" ${BS.days === v ? 'selected' : ''}>${t}</option>`;
+    const hero = `<section class="card" style="margin-bottom:16px">
+        <div class="hero"><span class="hero-label">Net balance</span><span class="hero-value amt ${net < 0 ? 'neg' : ''}">${esc(loaded ? money(net) : '—')}</span><span class="text-2">${sub}</span></div>
+        <div class="row wrap" style="margin-top:16px">
+          <button class="btn accent" data-act="bs-connect">${icon('plus')}Connect a bank or card</button>
+          <button class="btn" data-act="bs-sync">${icon('refresh')}Sync now</button>
+          <a class="btn ghost" href="/api/export.csv">${icon('download')}Export CSV</a>
+          ${items.length > 1 ? '<button class="btn ghost danger" data-act="bs-disconnect-all">Disconnect all</button>' : ''}
+          <label class="row small muted" style="gap:8px;margin-left:auto">History<select class="select" data-change="bs-days" style="width:auto;height:34px">${opt('90', '90 days')}${opt('180', '6 months')}${opt('ytd', 'This year')}${opt('365', '1 year')}${opt('730', '2 years (max)')}</select></label>
+        </div>
+        <p class="note" style="margin-top:12px">${icon('info')}<span>History is set once, when you connect. Plaid fixes the window at link time, so changing it later means disconnecting the bank and linking it again.</span></p>
+      </section>`;
+    if (!loaded) {
+      return hero + (BS.failed
+        ? `<div class="card">${UI.empty('landmark', 'Bank Sync did not load', 'Your connected banks could not be fetched just now.', '<button class="btn" data-act="bs-retry">Try again</button>')}</div>`
+        : '<div class="skel" style="height:140px;border-radius:var(--radius)"></div>');
+    }
+    if (!BS.accounts.length) {
+      return hero + `<div class="card">${UI.empty('landmark', 'Connect your first bank', 'Bank Sync pulls balances and transactions from your banks through Plaid. Access is read-only: it can never move money.', '<button class="btn accent" data-act="bs-connect">Connect a bank or card</button>')}</div>`;
+    }
+
+    const byItem = new Map();
+    for (const a of BS.accounts) { if (!byItem.has(a.item_id)) byItem.set(a.item_id, []); byItem.get(a.item_id).push(a); }
+    const banks = items.map((it) => {
+      const name = it.institution_name || 'Connected bank';
+      const btn = (act, text, title = '') => `<button class="btn ghost sm" data-act="${act}" data-item="${esc(it.item_id)}" data-label="${esc(name)}" ${title ? `title="${esc(title)}"` : ''}>${text}</button>`;
+      const rows = (byItem.get(it.item_id) || []).map((a) => {
+        const c = Number(a.balances && a.balances.current);
+        const liab = BS_LIAB.has(a.type);
+        return `<div class="list-item"><div class="li-main"><div class="li-title">${esc(a.name || 'Account')}</div><div class="li-sub">${a.mask ? '•••• ' + esc(a.mask) : esc(a.subtype || a.type || '')}</div></div><div class="li-amt ${liab ? 'neg' : ''}">${Number.isFinite(c) ? amt(bsCents(liab ? -Math.abs(c) : c)) : '—'}</div></div>`;
+      }).join('');
+      const when = it.connected_at ? 'Connected ' + fmtDate(String(it.connected_at).slice(0, 10), { year: true }) + ' · ' : '';
+      const actions = btn('bs-fix', 'Fix connection', 'Sign in again to repair this connection. Does not use a Plaid connection slot.')
+        + btn('bs-relink', 'Reconnect', 'Link this bank again to widen its history') + btn('bs-disconnect', 'Disconnect');
+      return UI.card(name, `<div class="list">${rows}</div><div class="row wrap" style="gap:4px;margin-top:10px">${actions}</div>`, { cls: 's6', sub: when + bsHistory(it) });
+    }).join('');
+
+    const tx = BS.tx.slice().sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+    const shown = tx.slice(0, moreLimit('bs-tx', 100, tx.length));
+    let list = '', day = '';
+    for (const t of shown) {
+      if (t.date !== day) { day = t.date; list += `<div class="bs-day">${esc(bsDay(day))}</div>`; }
+      const desc = t.merchant_name || t.name || 'Transaction';
+      const v = -bsCents(t.amount);
+      list += `<div class="list-item"><div class="ico-tile bs-ini" style="--dot:${bsColor(desc)}">${esc(bsInitials(desc))}</div><div class="li-main"><div class="li-title">${esc(desc)}</div>${t.pending ? '<div class="li-sub">Pending</div>' : ''}</div><div class="li-amt ${v < 0 ? 'neg' : 'pos'}">${amt(v, { sign: true })}</div></div>`;
+    }
+    const txCard = tx.length
+      ? UI.card('Transactions', `<div class="list">${list}</div>${moreBar('bs-tx', tx.length - shown.length, tx.length)}`, { cls: 's12', sub: `${plural(tx.length, 'transaction')} from your connected banks` })
+      : `<div class="card s12">${UI.empty('list', 'No transactions yet', 'Connect a bank, then press Sync now.')}</div>`;
+    return hero + `<div class="grid">${banks}${txCard}</div>`;
+  },
+  after() { if (!BS.accounts && !BS.loading && !BS.failed) bsLoad(); },
+};
+CHG['bs-days'] = (el) => { BS.days = el.value; };
+ACT['bs-retry'] = () => { BS.failed = false; render(); };
+ACT['bs-connect'] = async (el) => {
+  el.disabled = true;
+  try { if (await bsLinkNew(bsDays())) { toast('Connected'); await bsLoad(); } }
+  catch (e) { console.error(e); toast(e.message || 'Could not open Plaid Link', 'err'); }
+  finally { el.disabled = false; }
+};
+ACT['bs-sync'] = async (el) => {
+  el.disabled = true;
+  toast('Syncing…');
+  try {
+    const out = await bsApi('/api/sync', { method: 'POST' });
+    await bsLoad();
+    // Name the bank and quote Plaid's own code. "Sync failed" tells nobody
+    // anything; ITEM_LOGIN_REQUIRED tells you exactly what to do.
+    if (out.errors && out.errors.length) {
+      const reauth = out.errors.some((e) => e.needs_reauth);
+      toast(out.errors.map((e) => `${e.institution}: ${e.error_code}`).join(' · ') + (reauth ? '. Use Fix connection on that bank.' : ''), 'err');
+    } else toast('Synced');
+  } catch (e) { console.error(e); toast(e.message || 'Sync failed', 'err'); }
+  finally { el.disabled = false; }
+};
+/* Link in update mode. It re-authenticates the bank you already have rather
+   than creating a new connection, so it does not spend a Plaid connection
+   slot. It cannot change the history window. */
+ACT['bs-fix'] = async (el) => {
+  const { item, label } = el.dataset;
+  el.disabled = true;
+  try {
+    const { link_token } = await bsPost('/api/update_link_token', { item_id: item });
+    if (!(await plaidLink(link_token))) return;
+    toast(`${label} repaired. Syncing…`);
+    await bsApi('/api/sync', { method: 'POST' });
+    await bsLoad();
+    toast(`${label} reconnected`);
+  } catch (e) { console.error(e); toast(e.message || `Could not repair ${label}`, 'err'); }
+  finally { el.disabled = false; }
+};
+/* Widening history needs a genuinely new connection. The new one is linked
+   first and the old removed only once it succeeds, so backing out halfway
+   leaves the bank connected rather than gone. */
+ACT['bs-relink'] = async (el) => {
+  const { item, label } = el.dataset;
+  if (!(await confirmDialog({ title: `Reconnect ${label}?`, message: `This links ${esc(label)} again with the history window selected above, then removes the old connection.<br><br>${esc(BS_SLOT_NOTE)}`, confirmText: 'Reconnect' }))) return;
+  try {
+    const out = await bsLinkNew(bsDays());
+    if (!out || !out.item_id) return;
+    if (out.item_id !== item) {
+      try { await bsApi(`/api/items/${encodeURIComponent(item)}`, { method: 'DELETE' }); }
+      catch (e) { console.error('old item cleanup', e); }
+    }
+    toast(`${label} reconnected with more history`);
+    await bsLoad();
+  } catch (e) { console.error(e); toast(e.message || `Could not reconnect ${label}`, 'err'); }
+};
+ACT['bs-disconnect'] = async (el) => {
+  const { item, label } = el.dataset;
+  if (!(await confirmDialog({ title: `Disconnect ${label}?`, message: `This removes ${esc(label)} and its transactions from Bank Sync.<br><br>${esc(BS_SLOT_NOTE)}`, confirmText: 'Disconnect' }))) return;
+  try {
+    await bsApi(`/api/items/${encodeURIComponent(item)}`, { method: 'DELETE' });
+    toast(`${label} disconnected`);
+    await bsLoad();
+  } catch (e) { console.error(e); toast('Could not disconnect. Check the server console.', 'err'); }
+};
+// Typed confirmation, because this one cannot be undone from here:
+// reconnecting means going through Plaid Link again for every bank.
+ACT['bs-disconnect-all'] = async () => {
+  const names = (BS.items || []).map((it) => it.institution_name || 'Connected account');
+  if (!(await confirmDialog({ title: `Disconnect all ${names.length} banks?`, message: `${esc(names.join(', '))}<br><br>This revokes each connection at Plaid and removes their accounts and transactions from Bank Sync. Reconnecting means linking every bank again.<br><br>${esc(BS_SLOT_NOTE)}`, confirmText: 'Disconnect all', requireText: 'disconnect' }))) return;
+  try {
+    const out = await bsApi('/api/items', { method: 'DELETE' });
+    const bits = [`${out.removedItems} disconnected`];
+    if (out.removedTransactions) bits.push(`${out.removedTransactions} transactions removed`);
+    if (out.revokeFailed && out.revokeFailed.length) bits.push(`${out.revokeFailed.length} could not be revoked at Plaid (removed locally)`);
+    toast(bits.join(' · '));
+    await bsLoad();
+  } catch (e) { console.error(e); toast('Could not disconnect. Check the server console.', 'err'); }
+};
+
 VIEWS.import = {
   title: 'Import & Inbox',
   render() {
@@ -5352,7 +5612,7 @@ VIEWS.import = {
         <header class="card-h"><div><h3>${icon('landmark')}Connected banks</h3><p class="card-sub">Transactions sync straight into your books — no review step. Refresh anytime to pull in anything new.</p></div></header>
         <div class="row wrap">
           <button class="btn accent" data-act="imp-banksync">${icon('refresh')}Refresh from connected banks</button>
-          <a class="btn ghost" href="/">Open Bank Sync</a>
+          <a class="btn ghost" href="#/banksync">Open Bank Sync</a>
         </div>
       </section>
       <div class="grid import-top">
