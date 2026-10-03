@@ -1,20 +1,27 @@
-/* ============ Pop themes ============
-   Loud on purpose: flat colour, thick outlines, hard offset shadows and
-   springy motion. Every other theme keeps motion quiet; these are the place
-   the bouncy stuff belongs. One file shared by every page, and linked after
-   each page's own <style> so equal-specificity rules here win.
+/* ============ Extra themes ============
+   The themes with a look of their own, beyond recolouring: the loud Pop
+   family and the calm Liquid glass. One file shared by every page, linked
+   after each page's own <style> so equal-specificity rules here win. Each
+   theme is opt-in through data-theme; nothing here touches the defaults. */
 
-   Every colourway is a data-theme starting with "pop", so the structure and
-   motion below are written once against [data-theme^="pop"] and each
-   colourway only sets colours. Contrast is checked against both the page
-   ground and the cards: muted text, links and gain/loss amounts all clear
-   4.5:1 on either. */
+/* ============ Pop ============
+   Loud on purpose: flat colour, thick outlines, hard offset shadows and
+   springy motion. Every colourway is a data-theme starting with "pop", so the
+   structure and motion are written once against [data-theme^="pop"] and
+   each colourway only sets colours.
+
+   Secondary text is a dark shade of the colourway's own accent rather than
+   grey, so it belongs to the palette instead of sitting on top of it.
+   Contrast is checked against both the page ground and the cards: muted
+   text, links and gain/loss amounts all clear 4.5:1 on either. */
 :root[data-theme^="pop"] {
   color-scheme: light;
   --ink: #111111;                     /* outlines and hard shadows */
   --card-border: var(--ink);
   --line: rgba(17,17,17,.12); --line-2: rgba(17,17,17,.28);
   --text: #111111;
+  --text-2: color-mix(in srgb, var(--accent-text) 45%, #111);
+  --muted: color-mix(in srgb, var(--accent-text) 80%, #111);
   --feature-ink: #111111; --feature-mute: rgba(17,17,17,.75); --feature-line: rgba(17,17,17,.2);
   --btn: #111111;
   --warn: #b85c00; --crit: #e23b4a;
@@ -23,7 +30,10 @@
   --c4: #ff5a1f; --c5: #2a78d6; --c6: #111111; --c7: #e34948;
   --radius: 18px;
   --shadow: 8px 8px 0 var(--ink);
+  /* One family throughout: 800 for headings, lighter weights for everything
+     else, so the small text reads as part of the same voice. */
   --display: "Bricolage Grotesque", "Onest", system-ui, sans-serif;
+  --font: "Bricolage Grotesque", "Geist", system-ui, sans-serif;
 
   /* The motion tokens every component already uses. Swapping the entrance
      curve for one that overshoots (roughly GSAP's back.out(2.5)) makes the
@@ -40,28 +50,24 @@
 /* Lime keeps the plain "pop" value so a saved choice from before still works. */
 :root[data-theme="pop"] {
   --bg: #c6ff3d; --surface: #ffffff; --surface-2: #f4f4ee; --surface-3: #e8e8df;
-  --text-2: #2b2f26; --muted: #4f5546;
   --accent: #8a3cff; --accent-text: #6b1fe0; --accent-ink: #ffffff; --accent-soft: rgba(138,60,255,.14);
   --feature: #ff4fd8; --btn-ink: #c6ff3d; --sticker: #ff4fd8;
   --pos: #0b7a45; --neg: #c01f2c;
 }
 :root[data-theme="pop-sunset"] {
   --bg: #ffb38a; --surface: #ffffff; --surface-2: #fbf5f1; --surface-3: #f2e7df;
-  --text-2: #2e2723; --muted: #4a3f38;
   --accent: #3d2bff; --accent-text: #2a1bc4; --accent-ink: #ffffff; --accent-soft: rgba(61,43,255,.12);
   --feature: #ffe14d; --btn-ink: #ffb38a; --sticker: #ff4f9a;
   --pos: #075a32; --neg: #93101c;
 }
 :root[data-theme="pop-mint"] {
   --bg: #a8f0d1; --surface: #ffffff; --surface-2: #f2f8f5; --surface-3: #e2efe9;
-  --text-2: #26332d; --muted: #3f524a;
   --accent: #ff4b3e; --accent-text: #b3261a; --accent-ink: #111111; --accent-soft: rgba(255,75,62,.14);
   --feature: #ffd84d; --btn-ink: #a8f0d1; --sticker: #ff4b3e;
   --pos: #0b6e3e; --neg: #a3122a;
 }
 :root[data-theme="pop-grape"] {
   --bg: #c3b1ff; --surface: #ffffff; --surface-2: #f6f4fd; --surface-3: #ebe6fa;
-  --text-2: #2c2838; --muted: #433d57;
   --accent: #ff4f9a; --accent-text: #8e0a4b; --accent-ink: #111111; --accent-soft: rgba(255,79,154,.14);
   --feature: #c6ff3d; --btn-ink: #c3b1ff; --sticker: #ffd23f;
   --pos: #064f2c; --neg: #8a0c18;
@@ -69,18 +75,20 @@
 /* Calmer colour, same bounce. */
 :root[data-theme="pop-news"] {
   --bg: #f3ead7; --surface: #fffdf8; --surface-2: #f8f2e6; --surface-3: #ede4d2;
-  --text-2: #3a342a; --muted: #59503f;
   --accent: #ff5a1f; --accent-text: #b03a0b; --accent-ink: #111111; --accent-soft: rgba(255,90,31,.14);
   --feature: #ffd23f; --btn-ink: #f3ead7; --sticker: #ff5a1f;
   --pos: #0b7a45; --neg: #b81d2a;
 }
-/* The dark one: lime outlines and shadows instead of black. */
+/* The dark one: lime outlines and shadows instead of black, and secondary
+   text tinted toward lime from the light end rather than the dark one. */
 :root[data-theme="pop-night"] {
   color-scheme: dark;
   --ink: #c6ff3d;
   --bg: #111111; --surface: #1c1c1c; --surface-2: #252525; --surface-3: #303030;
   --line: rgba(255,255,255,.1); --line-2: rgba(255,255,255,.2);
-  --text: #f4f4f1; --text-2: #c9c9c2; --muted: #a3a39b;
+  --text: #f4f4f1;
+  --text-2: color-mix(in srgb, var(--accent-text) 25%, #d6d6cf);
+  --muted: color-mix(in srgb, var(--accent-text) 35%, #a3a39b);
   --accent: #c6ff3d; --accent-text: #c6ff3d; --accent-ink: #111111; --accent-soft: rgba(198,255,61,.14);
   --feature: #ff4fd8; --btn: #f4f4f1; --btn-ink: #111111; --sticker: #8a3cff;
   --pos: #3ccf7f; --neg: #ff6b72; --warn: #fab219; --crit: #ff5257;
@@ -122,13 +130,7 @@
 :root[data-theme^="pop"] .view-in > .grid > *,
 :root[data-theme^="pop"] .view-in .band > .grid > * { animation-name: popBounceIn; animation-duration: 520ms; }
 :root[data-theme^="pop"] .modal { animation: popBounceIn var(--dur-3) var(--ease-out); }
-
-/* The other pages render their cards once, so they can bounce in directly. */
 :root[data-theme^="pop"] .card:not(:where(#app *)) { animation: popBounceIn 520ms var(--ease-out) backwards; }
-:root[data-theme^="pop"] .card:not(:where(#app *)):nth-child(2) { animation-delay: 60ms; }
-:root[data-theme^="pop"] .card:not(:where(#app *)):nth-child(3) { animation-delay: 120ms; }
-:root[data-theme^="pop"] .card:not(:where(#app *)):nth-child(n+4) { animation-delay: 160ms; }
-
 :root[data-theme^="pop"] .brand:hover .brand-mark { animation: popWobble 500ms var(--ease-out); }
 
 /* A sticker that turns slowly behind everything. */
@@ -138,11 +140,85 @@
   clip-path: polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%);
 }
 
+/* ============ Liquid glass ============
+   The calm one: frosted panels over soft colour that drifts behind them.
+   Translucent white with a 30px backdrop blur, a hairline white rim and big
+   corners, over pale blue, lilac and peach. Motion settles smoothly and never
+   overshoots. Text sits on near-white glass, so contrast is checked against
+   white and against the palest blob: muted text clears 4.5:1 on both. */
+:root[data-theme="glass"] {
+  color-scheme: light;
+  --bg: #eef0f7; --surface: rgba(255,255,255,.62); --surface-2: rgba(255,255,255,.5); --surface-3: rgba(255,255,255,.8);
+  --card-border: rgba(255,255,255,.75); --line: rgba(29,29,31,.08); --line-2: rgba(29,29,31,.16);
+  --text: #1d1d1f; --text-2: #3a3a3c; --muted: #545459;
+  --accent: #0071e3; --accent-text: #0066cc; --accent-ink: #ffffff; --accent-soft: rgba(0,113,227,.12);
+  --feature: rgba(0,96,200,.92); --feature-ink: #ffffff; --feature-mute: rgba(255,255,255,.82); --feature-line: rgba(255,255,255,.24);
+  --btn: #1d1d1f; --btn-ink: #ffffff;
+  --pos: #1f7a35; --neg: #c4001a; --warn: #b25000; --crit: #e0002a;
+  --grid: rgba(29,29,31,.07); --axis: rgba(29,29,31,.25);
+  --c0: #0071e3; --c1: #ff9500; --c2: #34c759; --c3: #af52de;
+  --c4: #ff2d55; --c5: #5ac8fa; --c6: #8e8e93; --c7: #ff3b30;
+  --radius: 28px;
+  --shadow: 0 24px 60px rgba(40,50,110,.16);
+  --ease-out: cubic-bezier(.215, .61, .355, 1);   /* GSAP's power3.out: settles, never overshoots */
+  --dur-3: 480ms;
+}
+
+/* The drifting colour. It sits behind everything, so every frosted panel
+   blurs it into its own soft tint. */
+:root[data-theme="glass"] body::before {
+  content: ""; position: fixed; inset: -15%; z-index: -1; pointer-events: none;
+  background:
+    radial-gradient(38% 34% at 18% 22%, #b9d4ff 0%, transparent 70%),
+    radial-gradient(34% 40% at 82% 18%, #dccbff 0%, transparent 70%),
+    radial-gradient(44% 38% at 62% 88%, #ffd6c2 0%, transparent 70%);
+  animation: glassDrift 40s ease-in-out infinite alternate;
+}
+@keyframes glassDrift { to { transform: translate(4%, -3%) rotate(6deg) scale(1.06); } }
+
+:root[data-theme="glass"] :is(.card, .stat, .modal, .job, .banner, .month-nav) {
+  backdrop-filter: blur(30px) saturate(1.6); -webkit-backdrop-filter: blur(30px) saturate(1.6);
+  box-shadow: 0 10px 30px rgba(40,50,110,.08), inset 0 1px 0 rgba(255,255,255,.9);
+}
+:root[data-theme="glass"] .card.feature { border-color: rgba(255,255,255,.35); }
+:root[data-theme="glass"] .sidebar {
+  background: rgba(255,255,255,.4); border-right-color: rgba(255,255,255,.6);
+  backdrop-filter: blur(30px) saturate(1.6); -webkit-backdrop-filter: blur(30px) saturate(1.6);
+}
+:root[data-theme="glass"] .topbar { background: rgba(255,255,255,.3); backdrop-filter: blur(30px) saturate(1.6); -webkit-backdrop-filter: blur(30px) saturate(1.6); }
+:root[data-theme="glass"] .modal-wrap { background: rgba(40,45,70,.18); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+:root[data-theme="glass"] .modal { background: rgba(255,255,255,.72); }
+/* Small uppercase labels above the figures, Apple style. */
+:root[data-theme="glass"] :is(.stat-label, .hero-label) { text-transform: uppercase; letter-spacing: .06em; font-size: 12.5px; font-weight: 600; }
+
+@keyframes glassRise { from { opacity: 0; transform: translateY(30px) scale(.96); } }
+:root[data-theme="glass"] .view-in > *,
+:root[data-theme="glass"] .view-in > .grid > *,
+:root[data-theme="glass"] .view-in .band > .grid > * { animation-name: glassRise; animation-duration: 600ms; }
+:root[data-theme="glass"] .modal { animation: glassRise var(--dur-3) var(--ease-out); }
+:root[data-theme="glass"] .card:not(:where(#app *)) { animation: glassRise 600ms var(--ease-out) backwards; }
+
+/* ============ Shared by Pop and Liquid glass ============ */
+
+/* Secondary text, a size up and a weight heavier than the defaults. Against
+   800-weight headings, 12px regular grey read as an afterthought. */
+:root:is([data-theme^="pop"], [data-theme="glass"]) body { font-size: 15px; }
+:root:is([data-theme^="pop"], [data-theme="glass"]) :is(.small, .card-sub, .li-sub, .stat-sub, .note, .sr-d, .hint, .legend, .chip) { font-size: 13.5px; }
+:root:is([data-theme^="pop"], [data-theme="glass"]) :is(.card-sub, .li-sub, .stat-sub, .note, .sr-d) { font-weight: 500; }
+:root:is([data-theme^="pop"], [data-theme="glass"]) :is(.stat-label, .hero-label, .field > label, .field > .label, .summary-strip) { font-size: 14px; font-weight: 600; }
+:root:is([data-theme^="pop"], [data-theme="glass"]) :is(.delta, .table th, .cl-date) { font-size: 13px; }
+:root:is([data-theme^="pop"], [data-theme="glass"]) .badge { font-size: 12.5px; }
+
+/* Cards on the single-card pages arrive one after another. */
+:root:is([data-theme^="pop"], [data-theme="glass"]) .card:not(:where(#app *)):nth-child(2) { animation-delay: 60ms; }
+:root:is([data-theme^="pop"], [data-theme="glass"]) .card:not(:where(#app *)):nth-child(3) { animation-delay: 120ms; }
+:root:is([data-theme^="pop"], [data-theme="glass"]) .card:not(:where(#app *)):nth-child(n+4) { animation-delay: 160ms; }
+
 /* Reduced motion still wins unless the Ledger's Animation setting overrules
    it. The Ledger's own kill switch does not reach pseudo-elements, and the
    other pages have none, so this covers both. */
 @media (prefers-reduced-motion: reduce) {
-  :root[data-theme^="pop"]:not([data-motion="full"]) *,
-  :root[data-theme^="pop"]:not([data-motion="full"]) body::before { animation: none !important; transition: none !important; }
+  :root:not([data-motion="full"]) *,
+  :root:not([data-motion="full"]) body::before { animation: none !important; transition: none !important; }
 }
-:root[data-theme^="pop"][data-motion="off"] body::before { animation: none; }
+:root[data-motion="off"] body::before { animation: none; }

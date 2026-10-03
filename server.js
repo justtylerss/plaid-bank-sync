@@ -551,6 +551,68 @@ app.post('/api/auth/mfa/verify', async (req, res) => {
   res.json({ ok: true, user: publicUser(user) });
 });
 
+/* Deleting an account, for real.
+
+   The privacy policy has promised this since it was published, so it had
+   better do what it says. Order matters: revoke with Plaid first, because a
+   token this application has forgotten is still a live token on Plaid's side.
+   Deleting the local copy first would leave a credential nobody is tracking.
+
+   Guarded by the password, and by a code where the second factor is on — the
+   same bar as turning that factor off, because this is the more final of the
+   two. */
+app.post('/api/auth/delete-account', requireAuth, async (req, res) => {
+  const users = getUsers();
+  const user = users[req.userId];
+  if (!user) return res.status(401).json({ error: 'not_authenticated' });
+
+  const { password, code } = req.body || {};
+  if (!password || !(await bcrypt.compare(String(password), user.passwordHash))) {
+    return res.status(401).json({ error: 'That password is not right.' });
+  }
+  if (mfaOn(user) && !totpCheck(mfaSecretOf(user), code)) {
+    return res.status(400).json({ error: 'That code did not match.' });
+  }
+
+  let revokeFailed = [];
+  try {
+    const mine = new Set(getItemsForUser(req.userId).map(([itemId]) => itemId));
+    if (mine.size) ({ revokeFailed = [] } = await removeItems(mine));
+  } catch (err) {
+    // Revocation is the step that actually ends Plaid's access, so a failure
+    // here stops the deletion rather than quietly orphaning live tokens.
+    console.error('delete-account: revoke failed:', err.message);
+    return res.status(502).json({
+      error: 'Could not revoke your bank connections with Plaid, so nothing was deleted. Try again, or disconnect them individually first.',
+    });
+  }
+
+  /* removeItems only clears what hung off an item. Anything typed in by hand
+     carries the user id and no item, so sweep by owner as well — "everything
+     belonging to you" has to mean everything. */
+  const accounts = getAccounts();
+  for (const [id, a] of Object.entries(accounts)) if (a.userId === req.userId) delete accounts[id];
+  saveAccounts(accounts);
+
+  const tx = getTransactions();
+  let removedTx = 0;
+  for (const [id, t] of Object.entries(tx)) if (t.userId === req.userId) { delete tx[id]; removedTx++; }
+  saveTransactions(tx);
+
+  try {
+    fs.rmSync(ledgerUserDir(req.userId), { recursive: true, force: true });
+  } catch (err) {
+    console.error('delete-account: ledger dir:', err.message);
+  }
+
+  delete users[req.userId];
+  saveUsers(users);
+  mfaCleared(req.userId);
+  res.clearCookie(COOKIE_NAME);
+
+  res.json({ ok: true, removedTransactions: removedTx, revokeFailed });
+});
+
 app.get('/api/auth/me', requireAuth, (req, res) => {
   const users = getUsers();
   const user = users[req.userId];

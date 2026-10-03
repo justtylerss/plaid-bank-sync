@@ -11,7 +11,7 @@ intention.
 
 **Owner:** Tyler Le — responsible for all security decisions, changes and
 incident response.
-**Last reviewed:** 19 September 2026
+**Last reviewed:** 3 October 2026
 
 ---
 
@@ -37,6 +37,21 @@ of carelessness.
 **Authentication.** Email and password. Passwords hashed with bcrypt at cost
 10 and never stored or logged in recoverable form. There is no password reset
 flow, which also means no reset flow to abuse.
+
+**Second factor.** End users can require a TOTP code as well as a password.
+A correct password alone no longer opens a session: it returns a short-lived
+ticket marked `typ:"mfa"`, and only a correct code or an unused recovery code
+trades that ticket for a session cookie. `requireAuth` rejects `typ:"mfa"`
+outright, because the ticket is signed with the same secret and would
+otherwise be a session. TOTP secrets are encrypted at rest under their own
+derived key. Eight single-use recovery codes, hashed, shown once. Five wrong
+codes locks that account out for fifteen minutes. The factor is TOTP and is
+not phishing-resistant.
+
+**Consent.** Signing up records `{version, at}` against the account, enforced
+server-side rather than only in the form. Accounts predating it are asked at
+their next sign-in. Versioned, so a material change to what is collected asks
+again instead of inheriting an older yes.
 
 **Sessions.** Signed JWT in a cookie: `httpOnly` (not readable from
 JavaScript), `sameSite=lax` (not sent on cross-site requests), and `secure`
@@ -97,9 +112,6 @@ this application.
 
 Stated plainly so that no one relies on a control that does not exist.
 
-- **No multi-factor authentication for end users of the app itself.** Two known
-  users, both the owner’s own accounts. Accepted risk. This is separate from
-  administrative MFA on Railway and GitHub, which is in place (section 2).
 - **No encryption of bulk transaction data at rest** beyond whatever the
   hosting volume provides. Only the Plaid tokens are encrypted by the
   application.
@@ -124,6 +136,13 @@ not beyond it.
 | Plaid `access_token` | The bank connection is removed | Disconnecting that bank, which also revokes it at Plaid |
 | Everything belonging to a user | The account is removed | Deleting the account |
 | Imported files | Not retained | Read once for their transactions, then discarded |
+
+Account deletion is a route, not a manual step: it revokes every bank
+connection with Plaid first — a token this application has forgotten is still
+live on Plaid's side — then clears accounts, transactions and the ledger
+directory, then the credential record. It is guarded by the password, and by a
+code where the second factor is on. A revocation failure aborts the deletion
+rather than orphaning live tokens.
 
 There is no archive of deleted records and nothing is kept back for later
 analysis. Copies may survive briefly in the hosting provider’s own
@@ -165,6 +184,11 @@ enough.
 is compromised even though they are encrypted, because `SESSION_SECRET` may
 have been exposed alongside them. Disconnect every bank, rotate
 `SESSION_SECRET`, relink.
+
+**Deleting an account.** Self-service from the security page. Everything
+belonging to that user goes, and their bank connections are revoked with Plaid
+as the first step. There is no undo and no backup; export first if a copy is
+wanted.
 
 **Changes to the application.** Single maintainer. Changes are committed to
 git with the reasoning in the commit message, so the history serves as the

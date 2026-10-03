@@ -6,7 +6,7 @@
 <title>Security — Ledger Vault Cloud</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500&family=Geist:wght@400;500;600&family=Onest:wght@500;600;700&family=Bricolage+Grotesque:wght@800&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500&family=Geist:wght@400;500;600&family=Onest:wght@500;600;700&family=Bricolage+Grotesque:opsz,wght@12..96,400..800&display=swap">
 <style>
 :root {
   color-scheme: light;
@@ -22,7 +22,7 @@
   --mono: "Geist Mono", ui-monospace, Consolas, monospace;
 }
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]):not([data-theme="blue"]):not([data-theme="crimson"]):not([data-theme^="pop"]) {
+  :root:not([data-theme="light"]):not([data-theme="blue"]):not([data-theme="crimson"]):not([data-theme^="pop"]):not([data-theme="glass"]) {
     color-scheme: dark;
     --bg: #08090a; --surface: #141618; --surface-2: #1b1e21; --surface-3: #25292d;
     --card-border: rgba(255,255,255,.05); --line: rgba(255,255,255,.08); --line-2: rgba(255,255,255,.15);
@@ -87,7 +87,7 @@ a { color: var(--accent-text); }
 .back { display: inline-block; margin-top: 28px; font-size: 14px; text-decoration: none; font-weight: 600; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 </style>
-<link rel="stylesheet" href="/theme-pop.css">
+<link rel="stylesheet" href="/themes.css">
 <script>
 (function () {
   try {
@@ -151,6 +151,28 @@ a { color: var(--accent-text); }
     <div class="err" id="offErr" hidden></div>
     <div><button class="danger" id="offConfirm">Turn it off</button>
       <button class="ghost" id="offCancel">Keep it on</button></div>
+  </div>
+
+  <div class="card" id="dangerCard">
+    <h2>Delete this account</h2>
+    <p>Everything belonging to you goes: transactions, accounts, categories, goals, settings and
+      your login. Every bank connection is revoked with Plaid first, so their access ends too.</p>
+    <div class="note"><b>There is no undo and no backup.</b> If you want a copy of your records,
+      export them from Settings before you do this.</div>
+    <button class="danger" id="delStart">Delete my account</button>
+    <div id="delForm" hidden>
+      <label for="delPass">Password</label>
+      <input id="delPass" type="password" autocomplete="current-password">
+      <div id="delCodeWrap" hidden>
+        <label for="delCode">Six-digit code</label>
+        <input id="delCode" class="code" inputmode="numeric" maxlength="6" placeholder="000000" autocomplete="off">
+      </div>
+      <label for="delConfirm">Type <b>delete my account</b> to confirm</label>
+      <input id="delConfirm" autocomplete="off" placeholder="delete my account">
+      <div class="err" id="delErr" hidden></div>
+      <div><button class="danger" id="delConfirmBtn">Permanently delete</button>
+        <button class="ghost" id="delCancel">Keep my account</button></div>
+    </div>
   </div>
 
   <a class="back" href="/ledger/#/settings">&larr; Back to Settings</a>
@@ -264,6 +286,39 @@ $('#offConfirm').addEventListener('click', async () => {
     await load();
   } catch (e) { say($('#offErr'), e.message); }
   $('#offConfirm').disabled = false;
+});
+
+$('#delStart').addEventListener('click', () => {
+  $('#delStart').hidden = true;
+  $('#delForm').hidden = false;
+  $('#delCodeWrap').hidden = !(state && state.mfa);
+  $('#delPass').focus();
+});
+$('#delCancel').addEventListener('click', () => {
+  $('#delForm').hidden = true;
+  $('#delStart').hidden = false;
+  $('#delPass').value = ''; $('#delCode').value = ''; $('#delConfirm').value = '';
+  say($('#delErr'), '');
+});
+$('#delConfirmBtn').addEventListener('click', async () => {
+  say($('#delErr'), '');
+  if ($('#delConfirm').value.trim().toLowerCase() !== 'delete my account') {
+    say($('#delErr'), 'Type the confirmation phrase exactly to continue.');
+    return;
+  }
+  $('#delConfirmBtn').disabled = true;
+  try {
+    const d = await api('/api/auth/delete-account', {
+      password: $('#delPass').value,
+      code: $('#delCode').value.trim(),
+    });
+    if ((d.revokeFailed || []).length) {
+      alert('Account deleted, but Plaid could not confirm revocation for: ' + d.revokeFailed.join(', ')
+        + '. Remove them from your bank or Plaid portal directly.');
+    }
+    location.href = '/login.html';
+  } catch (e) { say($('#delErr'), e.message); }
+  $('#delConfirmBtn').disabled = false;
 });
 
 load();
