@@ -6,7 +6,7 @@
 <title>Bank Sync</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500&family=Geist:wght@400;500;600&family=Onest:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500&family=Geist:wght@400;500;600&family=Onest:wght@500;600;700&family=Bricolage+Grotesque:wght@800&display=swap">
 <script src="https://cdn.plaid.com/link/v2/stable/link-initialize.js"></script>
 <style>
 /* ============ Tokens — shared with Ledger Vault Cloud ============ */
@@ -27,7 +27,7 @@
   --mono: "Geist Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
 }
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]):not([data-theme="blue"]):not([data-theme="crimson"]) {
+  :root:not([data-theme="light"]):not([data-theme="blue"]):not([data-theme="crimson"]):not([data-theme^="pop"]) {
     color-scheme: dark;
     --bg: #08090a; --surface: #141618; --surface-2: #1b1e21; --surface-3: #25292d;
     --card-border: rgba(255,255,255,.05); --line: rgba(255,255,255,.08); --line-2: rgba(255,255,255,.15);
@@ -173,6 +173,7 @@ svg.i { width: 18px; height: 18px; flex: none; stroke: currentColor; fill: none;
   --shadow: 0 24px 60px rgba(0,0,0,.72);
 }
 </style>
+<link rel="stylesheet" href="/theme-pop.css">
 <script>
 (function () {
   try {

@@ -1,7 +1,7 @@
 <title>Ledger Vault Cloud</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500&family=Geist:wght@400;500;600&family=Onest:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500&family=Geist:wght@400;500;600&family=Onest:wght@500;600;700&family=Bricolage+Grotesque:wght@800&display=swap">
 <style>
 /* ============ Tokens ============
    System adapted from the Revolut DESIGN.md reference (pill controls, 20px cards,
@@ -49,7 +49,7 @@
   --mono: "Geist Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
 }
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]):not([data-theme="blue"]):not([data-theme="crimson"]) {
+  :root:not([data-theme="light"]):not([data-theme="blue"]):not([data-theme="crimson"]):not([data-theme^="pop"]) {
     color-scheme: dark;
     --bg: #08090a; --surface: #141618; --surface-2: #1b1e21; --surface-3: #25292d;
     --card-border: rgba(255,255,255,.05); --line: rgba(255,255,255,.08); --line-2: rgba(255,255,255,.15);
@@ -1099,6 +1099,7 @@ body.dragging::after { content: "Drop to import"; position: fixed; inset: 12px; 
   --shadow: 0 24px 60px rgba(0,0,0,.72);
 }
 </style>
+<link rel="stylesheet" href="/theme-pop.css">
 <script>
 (function () {
   try {
@@ -6592,7 +6593,7 @@ VIEWS.settings = {
       <div class="set-row"><div><div class="sr-t">Currency</div></div>${sel('set-currency', st.currency, [['USD', 'USD $'], ['CAD', 'CAD $'], ['EUR', 'EUR €'], ['GBP', 'GBP £'], ['AUD', 'AUD $'], ['MXN', 'MXN $'], ['INR', 'INR ₹'], ['PKR', 'PKR ₨']])}</div>
       <div class="set-row"><div><div class="sr-t">Tax set-aside rate</div><div class="sr-d">Used for the "set aside" estimates. Not a tax calculation.</div></div><div class="input-wrap" style="width:96px;flex:none"><input class="input" id="set-taxpct" data-change="set-taxpct" inputmode="decimal" value="${esc(st.taxPct)}" style="padding-right:28px;text-align:right" aria-label="Tax set-aside percent"><span class="suffix">%</span></div></div>
       <div class="set-row"><div><div class="sr-t">Self-employed income lands in</div><div class="sr-d">Banks report trading payouts and sales commissions the same way, so pick which one they are for you.</div></div>${sel('set-incomedef', st.incomeDefault || 'Trading payouts', catsOfKind('income').map((c) => [c.name, c.name]))}</div>
-      <div class="set-row"><div><div class="sr-t">Theme</div><div class="sr-d">Applies to Bank Sync as well. Stored on this device.</div></div>${sel('set-theme', ui.theme, [['system', 'Follow system'], ['light', 'Light'], ['blue', 'Light blue'], ['dark', 'Dark'], ['crimson', 'Black & red']])}</div>
+      <div class="set-row"><div><div class="sr-t">Theme</div><div class="sr-d">Applies to Bank Sync as well. Stored on this device.</div></div>${sel('set-theme', ui.theme, [['system', 'Follow system'], ['light', 'Light'], ['blue', 'Light blue'], ['dark', 'Dark'], ['crimson', 'Black & red'], ['pop', 'Pop: Lime'], ['pop-sunset', 'Pop: Sunset'], ['pop-mint', 'Pop: Mint'], ['pop-grape', 'Pop: Grape'], ['pop-news', 'Pop: Newsprint'], ['pop-night', 'Pop: Night arcade']])}</div>
       <div class="set-row"><div><div class="sr-t">Row density</div><div class="sr-d">Compact fits more on screen. Useful once a table is long enough to scroll.</div></div><button class="btn sm" data-act="density">${ui.compact ? 'Comfortable' : 'Compact'}</button></div>
       <div class="set-row"><div><div class="sr-t">Animation</div><div class="sr-d">${esc(motionStatusText())}</div></div>${sel('set-motion', ui.motion, [['full', 'Full (default)'], ['system', 'Follow system'], ['off', 'Off']])}</div>`);
     const chat = UI.card('Import from any Claude chat', `
@@ -6630,7 +6631,7 @@ function applyTheme(v) {
   if (v === 'system') document.documentElement.removeAttribute('data-theme');
   else document.documentElement.setAttribute('data-theme', v);
 }
-const THEME_LABEL = { system: 'Following your system', light: 'Light', blue: 'Light blue', dark: 'Dark' };
+const THEME_LABEL = { system: 'Following your system', light: 'Light', blue: 'Light blue', dark: 'Dark', crimson: 'Black & red', pop: 'Pop: Lime', 'pop-sunset': 'Pop: Sunset', 'pop-mint': 'Pop: Mint', 'pop-grape': 'Pop: Grape', 'pop-news': 'Pop: Newsprint', 'pop-night': 'Pop: Night arcade' };
 /* ---------- Bringing new defaults into an existing account ----------
    Settings merge on load, so a newly added setting reaches every account on
    its own. Lists do not: categories, write-off categories and businesses are

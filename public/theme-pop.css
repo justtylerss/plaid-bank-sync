@@ -1,0 +1,145 @@
+/* ============ Pop themes ============
+   Loud on purpose: flat colour, thick outlines, hard offset shadows and
+   springy motion. Every other theme keeps motion quiet; these are the place
+   the bouncy stuff belongs. One file shared by every page, and linked after
+   each page's own <style> so equal-specificity rules here win.
+
+   Every colourway is a data-theme starting with "pop", so the structure and
+   motion below are written once against [data-theme^="pop"] and each
+   colourway only sets colours. Contrast is checked against both the page
+   ground and the cards: muted text, links and gain/loss amounts all clear
+   4.5:1 on either. */
+:root[data-theme^="pop"] {
+  color-scheme: light;
+  --ink: #111111;                     /* outlines and hard shadows */
+  --card-border: var(--ink);
+  --line: rgba(17,17,17,.12); --line-2: rgba(17,17,17,.28);
+  --text: #111111;
+  --feature-ink: #111111; --feature-mute: rgba(17,17,17,.75); --feature-line: rgba(17,17,17,.2);
+  --btn: #111111;
+  --warn: #b85c00; --crit: #e23b4a;
+  --grid: rgba(17,17,17,.1); --axis: #111111;
+  --c0: var(--accent); --c1: #ff4fd8; --c2: #00a862; --c3: #ffb800;
+  --c4: #ff5a1f; --c5: #2a78d6; --c6: #111111; --c7: #e34948;
+  --radius: 18px;
+  --shadow: 8px 8px 0 var(--ink);
+  --display: "Bricolage Grotesque", "Onest", system-ui, sans-serif;
+
+  /* The motion tokens every component already uses. Swapping the entrance
+     curve for one that overshoots (roughly GSAP's back.out(2.5)) makes the
+     whole app spring without touching each animation. */
+  --ease-out: cubic-bezier(.34, 1.8, .64, 1);
+  --dur-2: 260ms; --dur-3: 420ms;
+  --rail-ease: cubic-bezier(.34, 1.56, .64, 1);
+}
+
+/* ---------- Colourways ---------- */
+/* Lime keeps the plain "pop" value so a saved choice from before still works. */
+:root[data-theme="pop"] {
+  --bg: #c6ff3d; --surface: #ffffff; --surface-2: #f4f4ee; --surface-3: #e8e8df;
+  --text-2: #2b2f26; --muted: #4f5546;
+  --accent: #8a3cff; --accent-text: #6b1fe0; --accent-ink: #ffffff; --accent-soft: rgba(138,60,255,.14);
+  --feature: #ff4fd8; --btn-ink: #c6ff3d; --sticker: #ff4fd8;
+  --pos: #0b7a45; --neg: #c01f2c;
+}
+:root[data-theme="pop-sunset"] {
+  --bg: #ffb38a; --surface: #ffffff; --surface-2: #fbf5f1; --surface-3: #f2e7df;
+  --text-2: #2e2723; --muted: #4a3f38;
+  --accent: #3d2bff; --accent-text: #2a1bc4; --accent-ink: #ffffff; --accent-soft: rgba(61,43,255,.12);
+  --feature: #ffe14d; --btn-ink: #ffb38a; --sticker: #ff4f9a;
+  --pos: #075a32; --neg: #93101c;
+}
+:root[data-theme="pop-mint"] {
+  --bg: #a8f0d1; --surface: #ffffff; --surface-2: #f2f8f5; --surface-3: #e2efe9;
+  --text-2: #26332d; --muted: #3f524a;
+  --accent: #ff4b3e; --accent-text: #b3261a; --accent-ink: #111111; --accent-soft: rgba(255,75,62,.14);
+  --feature: #ffd84d; --btn-ink: #a8f0d1; --sticker: #ff4b3e;
+  --pos: #0b6e3e; --neg: #a3122a;
+}
+:root[data-theme="pop-grape"] {
+  --bg: #c3b1ff; --surface: #ffffff; --surface-2: #f6f4fd; --surface-3: #ebe6fa;
+  --text-2: #2c2838; --muted: #433d57;
+  --accent: #ff4f9a; --accent-text: #8e0a4b; --accent-ink: #111111; --accent-soft: rgba(255,79,154,.14);
+  --feature: #c6ff3d; --btn-ink: #c3b1ff; --sticker: #ffd23f;
+  --pos: #064f2c; --neg: #8a0c18;
+}
+/* Calmer colour, same bounce. */
+:root[data-theme="pop-news"] {
+  --bg: #f3ead7; --surface: #fffdf8; --surface-2: #f8f2e6; --surface-3: #ede4d2;
+  --text-2: #3a342a; --muted: #59503f;
+  --accent: #ff5a1f; --accent-text: #b03a0b; --accent-ink: #111111; --accent-soft: rgba(255,90,31,.14);
+  --feature: #ffd23f; --btn-ink: #f3ead7; --sticker: #ff5a1f;
+  --pos: #0b7a45; --neg: #b81d2a;
+}
+/* The dark one: lime outlines and shadows instead of black. */
+:root[data-theme="pop-night"] {
+  color-scheme: dark;
+  --ink: #c6ff3d;
+  --bg: #111111; --surface: #1c1c1c; --surface-2: #252525; --surface-3: #303030;
+  --line: rgba(255,255,255,.1); --line-2: rgba(255,255,255,.2);
+  --text: #f4f4f1; --text-2: #c9c9c2; --muted: #a3a39b;
+  --accent: #c6ff3d; --accent-text: #c6ff3d; --accent-ink: #111111; --accent-soft: rgba(198,255,61,.14);
+  --feature: #ff4fd8; --btn: #f4f4f1; --btn-ink: #111111; --sticker: #8a3cff;
+  --pos: #3ccf7f; --neg: #ff6b72; --warn: #fab219; --crit: #ff5257;
+  --grid: rgba(255,255,255,.08); --axis: #4a4a4a; --c6: #f4f4f1;
+}
+
+:root[data-theme^="pop"] h1, :root[data-theme^="pop"] h2, :root[data-theme^="pop"] h3,
+:root[data-theme^="pop"] h4, :root[data-theme^="pop"] .hero-value, :root[data-theme^="pop"] .hero-amt { font-weight: 800; }
+:root[data-theme^="pop"] ::selection { background: var(--feature); color: #111; }
+
+/* ---------- Outlines and hard shadows ---------- */
+:root[data-theme^="pop"] .card { border-width: 3px; box-shadow: 6px 6px 0 var(--ink); }
+:root[data-theme^="pop"] .card.feature { border-color: var(--ink); }
+:root[data-theme^="pop"] .modal { border-width: 3px; }
+:root[data-theme^="pop"] .sidebar { border-right: 3px solid var(--ink); }
+:root[data-theme^="pop"] .topbar { border-bottom: 3px solid var(--ink); }
+/* Login and Security style bare inputs and buttons rather than .input/.btn.
+   :where() keeps the #app check from adding ID-level specificity. */
+:root[data-theme^="pop"] :is(.input, .select, .card:not(:where(#app *)) input:not([type=checkbox])) { border: 2px solid var(--ink); }
+:root[data-theme^="pop"] :is(.input, .select, .card:not(:where(#app *)) input:not([type=checkbox])):focus { border-color: var(--accent); box-shadow: 3px 3px 0 var(--ink); }
+:root[data-theme^="pop"] .progress { outline: 2px solid var(--ink); }
+:root[data-theme^="pop"] .pm-card { border: 3px solid var(--ink); box-shadow: 6px 6px 0 var(--ink); }
+:root[data-theme^="pop"] .pm-card:hover { transform: translate(-3px, -3px) rotate(-1deg); box-shadow: 9px 9px 0 var(--ink); }
+
+/* Buttons sit on their shadow and get pressed into it. */
+:root[data-theme^="pop"] :is(.btn, .card:not(:where(#app *)) button):not(.ghost) { border: 2px solid var(--ink); box-shadow: 3px 3px 0 var(--ink); }
+:root[data-theme^="pop"] :is(.btn, .card:not(:where(#app *)) button):not(.ghost):hover:not(:disabled) { transform: translate(-1px, -1px); box-shadow: 4px 4px 0 var(--ink); }
+:root[data-theme^="pop"] :is(.btn, .card:not(:where(#app *)) button):not(.ghost):active:not(:disabled) { transform: translate(3px, 3px); box-shadow: 0 0 0 var(--ink); }
+:root[data-theme^="pop"] :is(.btn, .card:not(:where(#app *)) button) { transition: transform var(--dur-1) var(--ease-out), box-shadow var(--dur-1) var(--ease-out), background var(--dur-1) var(--ease); }
+:root[data-theme^="pop"] .icon-btn:hover { transform: rotate(-8deg) scale(1.12); }
+
+/* ---------- Motion ---------- */
+@keyframes popBounceIn { from { opacity: 0; transform: translateY(24px) scale(.9) rotate(-1.5deg); } }
+@keyframes popWobble { 30% { transform: rotate(-10deg) scale(1.1); } 60% { transform: rotate(6deg); } }
+@keyframes popSpin { to { transform: rotate(360deg); } }
+
+/* Ledger: entrances only on navigation (.view-in), never on re-render. */
+:root[data-theme^="pop"] .view-in > *,
+:root[data-theme^="pop"] .view-in > .grid > *,
+:root[data-theme^="pop"] .view-in .band > .grid > * { animation-name: popBounceIn; animation-duration: 520ms; }
+:root[data-theme^="pop"] .modal { animation: popBounceIn var(--dur-3) var(--ease-out); }
+
+/* The other pages render their cards once, so they can bounce in directly. */
+:root[data-theme^="pop"] .card:not(:where(#app *)) { animation: popBounceIn 520ms var(--ease-out) backwards; }
+:root[data-theme^="pop"] .card:not(:where(#app *)):nth-child(2) { animation-delay: 60ms; }
+:root[data-theme^="pop"] .card:not(:where(#app *)):nth-child(3) { animation-delay: 120ms; }
+:root[data-theme^="pop"] .card:not(:where(#app *)):nth-child(n+4) { animation-delay: 160ms; }
+
+:root[data-theme^="pop"] .brand:hover .brand-mark { animation: popWobble 500ms var(--ease-out); }
+
+/* A sticker that turns slowly behind everything. */
+:root[data-theme^="pop"] body::before {
+  content: ""; position: fixed; right: -50px; bottom: -50px; z-index: -1; width: 220px; height: 220px;
+  background: var(--sticker); pointer-events: none; animation: popSpin 24s linear infinite;
+  clip-path: polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%);
+}
+
+/* Reduced motion still wins unless the Ledger's Animation setting overrules
+   it. The Ledger's own kill switch does not reach pseudo-elements, and the
+   other pages have none, so this covers both. */
+@media (prefers-reduced-motion: reduce) {
+  :root[data-theme^="pop"]:not([data-motion="full"]) *,
+  :root[data-theme^="pop"]:not([data-motion="full"]) body::before { animation: none !important; transition: none !important; }
+}
+:root[data-theme^="pop"][data-motion="off"] body::before { animation: none; }
