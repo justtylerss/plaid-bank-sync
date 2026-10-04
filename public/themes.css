@@ -2,7 +2,13 @@
    The themes with a look of their own, beyond recolouring: the loud Pop
    family and the calm Liquid glass. One file shared by every page, linked
    after each page's own <style> so equal-specificity rules here win. Each
-   theme is opt-in through data-theme; nothing here touches the defaults. */
+   theme is opt-in through data-theme. The one site-wide rule, hiding
+   scrollbars, is at the top because this is the stylesheet every page loads. */
+
+/* No visible scrollbars anywhere, in every theme. Everything still scrolls
+   with the wheel, trackpad, keyboard and touch; only the bar is gone. */
+* { scrollbar-width: none; }
+*::-webkit-scrollbar { display: none; }
 
 /* ============ Pop ============
    Loud on purpose: flat colour, thick outlines, hard offset shadows and
@@ -185,6 +191,9 @@
   backdrop-filter: blur(30px) saturate(1.6); -webkit-backdrop-filter: blur(30px) saturate(1.6);
 }
 :root[data-theme="glass"] .topbar { background: rgba(255,255,255,.3); backdrop-filter: blur(30px) saturate(1.6); -webkit-backdrop-filter: blur(30px) saturate(1.6); }
+/* The strip above the floating topbar frosts like everything else instead
+   of painting a flat band over the drifting colour. */
+:root[data-theme="glass"] .topbar::before { background: rgba(238,240,247,.55); backdrop-filter: blur(30px); -webkit-backdrop-filter: blur(30px); }
 :root[data-theme="glass"] .modal-wrap { background: rgba(40,45,70,.18); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
 :root[data-theme="glass"] .modal { background: rgba(255,255,255,.72); }
 /* Small uppercase labels above the figures, Apple style. */

@@ -255,11 +255,27 @@ svg.i { width: 18px; height: 18px; flex: none; stroke: currentColor; fill: none;
    rail keeps its grid column and sits 12px in from the edge; the main area's
    own padding is what leaves the gap beside it. */
 @media (min-width: 901px) {
-  .sidebar { top: 12px; height: calc(100vh - 24px); margin: 12px 0 12px 12px; scrollbar-width: thin;
-    border: 1px solid var(--card-border); border-radius: var(--radius); background: var(--surface); }
+  .sidebar { top: 12px; height: calc(100vh - 24px); margin: 12px 0 12px 12px;
+    border: 1px solid var(--card-border); border-radius: var(--radius); background: var(--surface);
+    /* Everything in the rail fits without scrolling. --fit runs from 0px in a
+       window 700px tall to 1px at 1000px, and the rows and gaps tighten along
+       it: 36px rows become 28px, 24px gaps become 4px. Overflow stays scrollable
+       only as a fallback for windows too short to hold the links at all. */
+    --fit: clamp(0px, (100vh - 700px) / 300, 1px); }
+  .sidebar .brand { padding-bottom: calc(8px + var(--fit) * 16); }
+  .sidebar .nav-group { margin-bottom: calc(4px + var(--fit) * 20); }
+  .sidebar .nav a { min-height: calc(28px + var(--fit) * 8); }
+  .sidebar .side-foot { padding-top: calc(6px + var(--fit) * 6); gap: calc(4px + var(--fit) * 4); }
+}
+/* In shorter windows the group headings give way to thin dividers. */
+@media (min-width: 901px) and (max-height: 860px) {
+  .sidebar .nav-label { height: 1px; padding: 0; margin: 0 var(--sp-3) 6px; overflow: hidden; color: transparent; background: var(--line); }
 }
 .topbar { top: 12px; margin-top: 12px; padding: 10px 12px 10px 20px;
   border: 1px solid var(--card-border); border-radius: var(--radius); background: color-mix(in srgb, var(--surface) 86%, transparent); }
+/* Covers the strip above the floating topbar, so content scrolling up goes
+   behind the page colour instead of showing through the gap. */
+.topbar::before { content: ""; position: absolute; left: -12px; right: -12px; bottom: calc(100% + 1px); height: 14px; background: var(--bg); }
 
 /* ============ Controls ============ */
 .btn {
@@ -334,6 +350,9 @@ textarea.input { height: auto; min-height: 64px; padding: 9px 11px; resize: vert
 .grid { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 16px; }
 .s3 { grid-column: span 3; } .s4 { grid-column: span 4; } .s5 { grid-column: span 5; } .s6 { grid-column: span 6; }
 .s7 { grid-column: span 7; } .s8 { grid-column: span 8; } .s12 { grid-column: span 12; }
+/* A packed grid (see packGrid) places every card explicitly on 4px rows,
+   so each card keeps its own height instead of matching its row's tallest. */
+.grid.packed { grid-auto-rows: 4px; row-gap: 0; align-items: start; }
 .card { background: var(--surface); border: 1px solid var(--card-border); border-radius: var(--radius); padding: 22px; min-width: 0; }
 .card.feature { background: var(--feature); color: var(--feature-ink); border-color: transparent; }
 .card.feature .muted, .card.feature .hero-label, .card.feature .hero-row div, .card.feature .card-sub { color: var(--feature-mute); }
@@ -3153,6 +3172,74 @@ function topbarHTML() {
   return `<button class="btn ghost icon-btn menu-btn" data-act="open-nav" aria-label="Open menu">${icon('menu')}</button>
     <h1>${esc(v.title)}</h1><span class="spacer"></span>${monthNav}`;
 }
+/* ---------- Packing ----------
+   Cards of different heights laid in plain rows leave dead space: a short
+   card stretched beside a tall one, or a half-width card alone beside
+   nothing. Packing lays them like bricks instead. It always fills the lowest
+   open stretch of the grid next, with the first card (in page order) narrow
+   enough to fit; widens that card across the rest of the stretch when no
+   remaining card could use it; and when nothing fits at all, stretches the
+   cards above that stretch down to meet their neighbours. Last, each
+   column's bottom card stretches so the bottoms line up. Widths still come
+   from the CSS span classes, so the responsive rules keep working, and a
+   grid where every card is full width is left alone. Cards are re-packed
+   whenever one changes size (a list refreshing, a picture loading). */
+const PACK_UNIT = 4;
+const packSeen = new Set();
+const packWatch = new ResizeObserver(() => {
+  if (packWatch.queued) return;
+  packWatch.queued = true;
+  requestAnimationFrame(() => { packWatch.queued = false; packAll(); });
+});
+function packAll() {
+  for (const k of packSeen) if (!k.isConnected) { packWatch.unobserve(k); packSeen.delete(k); }
+  $$('#view .grid').reverse().forEach(packGrid);   // innermost first, so outer cards measure settled content
+}
+function packGrid(g) {
+  const kids = [...g.children].filter((k) => !k.hidden);
+  g.classList.remove('packed');
+  for (const k of kids) { k.style.gridColumn = k.style.gridRow = k.style.minHeight = ''; }
+  const cs = getComputedStyle(g);
+  const cols = cs.gridTemplateColumns.split(' ').length;
+  const spanOf = (k) => { const c = getComputedStyle(k); const m = /span (\d+)/.exec(c.gridColumnStart + ' ' + c.gridColumnEnd); return m ? Math.min(cols, Number(m[1])) : cols; };
+  const todo = kids.map((k) => ({ k, s: spanOf(k) }));
+  if (todo.length < 2 || todo.every((t) => t.s === cols)) return;
+  g.classList.add('packed');
+  const gap = Math.round(parseFloat(cs.columnGap) / PACK_UNIT);
+  const sky = Array(cols).fill(0), owner = Array(cols).fill(null);
+  const stretch = (p, bottom) => {
+    if (!p || p.y + p.h >= bottom) return;
+    // Only a card with nothing beneath it in any of its columns can grow down.
+    // The fill order should never leave one partly covered, so this is a
+    // backstop: growing over a card would overlap it.
+    for (let c = p.x; c < p.x + p.s; c++) if (owner[c] !== p) return;
+    p.h = bottom - p.y;
+    p.k.style.gridRow = `${p.y + 1} / span ${p.h}`;
+    p.k.style.minHeight = p.h * PACK_UNIT + 'px';
+    for (let c = p.x; c < p.x + p.s; c++) if (owner[c] === p) sky[c] = bottom + gap;
+  };
+  while (todo.length) {
+    const y = Math.min(...sky), x = sky.indexOf(y);
+    let w = 0;
+    while (x + w < cols && sky[x + w] === y) w++;
+    const i = todo.findIndex((t) => t.s <= w);
+    if (i < 0) {   // nothing fits here: raise this stretch to its lower neighbour
+      const up = Math.min(x > 0 ? sky[x - 1] : Infinity, x + w < cols ? sky[x + w] : Infinity);
+      for (let c = x; c < x + w; c++) { stretch(owner[c], up - gap); sky[c] = up; }
+      continue;
+    }
+    const [t] = todo.splice(i, 1);
+    const s = todo.some((o) => o.s <= w - t.s) ? t.s : w;
+    t.k.style.gridColumn = `${x + 1} / span ${s}`;
+    const p = { k: t.k, x, s, y, h: Math.max(1, Math.ceil(t.k.offsetHeight / PACK_UNIT)) };
+    t.k.style.gridRow = `${y + 1} / span ${p.h}`;
+    for (let c = x; c < x + s; c++) { sky[c] = y + p.h + gap; owner[c] = p; }
+  }
+  const bottom = Math.max(...sky) - gap;
+  new Set(owner).forEach((p) => stretch(p, bottom));
+  for (const k of kids) if (!packSeen.has(k)) { packSeen.add(k); packWatch.observe(k); }
+}
+
 function render() {
   if (!S) return;
   const v = VIEWS[ui.view] || VIEWS.dashboard;
@@ -3173,6 +3260,7 @@ function render() {
   if (ui.animateIn) { viewEl.classList.remove('view-in', 'swap-in'); void viewEl.offsetWidth; viewEl.classList.add('view-in'); ui.animateIn = false; }
   else if (ui.swapIn) { viewEl.classList.remove('view-in', 'swap-in'); void viewEl.offsetWidth; viewEl.classList.add('swap-in'); ui.swapIn = false; }
   else viewEl.classList.remove('view-in', 'swap-in');
+  packAll();   // before the charts, so they draw at their packed width
   mountCharts();
   if (v.after) v.after();
   setSync(syncState);
@@ -3837,7 +3925,7 @@ VIEWS.dashboard = {
       const n = daysBetween(todayStr(), r.next);
       const badge = n < 0 ? `<span class="badge crit">${icon('alert')}Overdue</span>` : n === 0 ? `<span class="badge warn">${icon('alert')}Today</span>` : `<span class="muted small">${esc(relDays(r.next))}</span>`;
       return `<div class="list-item"><div class="ico-tile" style="--dot:${colorVar((catOf(r.cat) || {}).color)}">${icon(r.biz ? 'briefcase' : 'repeat')}</div><div class="li-main"><div class="li-title">${esc(r.name)}</div><div class="li-sub wrap">${fmtDate(r.next)} · ${badge}</div></div><div class="li-amt amt">${esc(money(r.amount))}</div>${n <= 0 ? `<button class="btn sm" data-act="rec-post" data-id="${r.id}" title="Record this payment">Post</button>` : ''}</div>`;
-    }).join('')}</div>` : UI.empty('repeat', 'Nothing due soon', 'Add rent, subscriptions and data fees to see what is coming.', '<button class="btn sm" data-act="rec-add">Add a bill</button>'), { sub: 'Next 14 days', cls: 's4', actions: '<button class="btn sm ghost" data-act="go" data-view="recurring">All</button>' });
+    }).join('')}</div>` : UI.empty('repeat', 'Nothing due soon', 'Add rent, subscriptions and data fees to see what is coming.', '<button class="btn sm" data-act="rec-add">Add a bill</button>'), { sub: 'Next 14 days', cls: 's6', actions: '<button class="btn sm ghost" data-act="go" data-view="recurring">All</button>' });
 
     // recent
     const recent = sortTx(S.transactions).slice(0, 6);
@@ -3861,9 +3949,9 @@ VIEWS.dashboard = {
     };
     return banner + stats
       + band('Needs you', needsReviewHTML('s12'), anomaliesHTML('s6'), driftHTML())
-      + band('Coming up', forecastHTML(), bills, goalsCardHTML('s6'))
-      + band('This month', weekReviewHTML(), monthReviewHTML(mk), rateChartHTML('s7'), cashflow, pace, cats)
-      + band('Where it sits', hero, pmCard, recentCard)
+      + band('Coming up', forecastHTML(), bills, goalsCardHTML('s6'), weekReviewHTML())
+      + band('This month', monthReviewHTML(mk), rateChartHTML('s7'), cashflow, pace, cats, pmCard)
+      + band('Where it sits', hero, recentCard)
       + band('Add and ask', askCardHTML('s8'), quickImportHTML(aiReady() ? 's4' : 's12'));
   },
 };
@@ -6236,7 +6324,7 @@ VIEWS.business = {
     const months = Array.from({ length: 12 }, (_, i) => `${y}-${pad(i + 1)}`);
     const incM = months.map((m) => sum(d.txs.filter((t) => t.type === 'income' && t.date.startsWith(m)), (t) => t.amount));
     const dedM = months.map((m) => sum(d.exp.filter((t) => t.date.startsWith(m)), deductible) + sum(d.trips.filter((t) => t.date.startsWith(m)), tripDeduction));
-    const monthly = UI.card('By month', legend([['Business income', 'var(--c0)'], ['Deductions', 'var(--c1)']]) + chartSlot(columnsChart({ labels: months.map(monthShort), series: [{ name: 'Income', color: 'var(--c0)', values: incM }, { name: 'Deductions', color: 'var(--c1)', values: dedM }], tipTitle: (i) => monthLabel(months[i]) }), 220), { cls: 's12', sub: esc(y) });
+    const monthly = UI.card('By month', legend([['Business income', 'var(--c0)'], ['Deductions', 'var(--c1)']]) + chartSlot(columnsChart({ labels: months.map(monthShort), series: [{ name: 'Income', color: 'var(--c0)', values: incM }, { name: 'Deductions', color: 'var(--c1)', values: dedM }], tipTitle: (i) => monthLabel(months[i]) }), 220), { cls: 's5', sub: esc(y) });
 
     // itemized
     const items = sortTx(d.txs).slice(0, 25);
