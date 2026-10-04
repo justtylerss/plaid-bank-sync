@@ -272,18 +272,12 @@ svg.i { width: 18px; height: 18px; flex: none; stroke: currentColor; fill: none;
   .sidebar .nav-label { height: 1px; padding: 0; margin: 0 var(--sp-3) 6px; overflow: hidden; color: transparent; background: var(--line); }
 }
 .topbar { --bw: 1px; top: 12px; margin-top: 12px; padding: 10px 12px 10px 20px;
-  border: var(--bw) solid var(--card-border); border-radius: var(--radius); background: color-mix(in srgb, var(--surface) 86%, transparent); }
+  border: var(--bw) solid var(--card-border); border-radius: var(--radius); background: var(--surface); }
 /* Covers the strip above the floating topbar, so content scrolling up goes
    behind the page colour instead of showing through the gap. It is measured
    from inside the border, so it steps out by the border's width (--bw, which
    a theme with a thicker outline raises) to leave the outline itself alone. */
 .topbar::before { content: ""; position: absolute; left: -12px; right: -12px; bottom: calc(100% + var(--bw)); height: 14px; background: var(--bg); }
-/* And a band below it that fades from the page colour to clear. Content
-   scrolling up dissolves into it before reaching the bar, so a card's
-   outline never runs up against the bar's own and doubles it. It starts
-   past the bar's shadow (--tb-drop, set by themes that give the bar one)
-   and fits inside the gap under the bar, so at rest it covers nothing. */
-.topbar::after { content: ""; position: absolute; left: -12px; right: -12px; top: calc(100% + var(--bw) + var(--tb-drop, 0px)); height: 12px; background: linear-gradient(var(--bg) 35%, transparent); pointer-events: none; }
 
 /* ============ Controls ============ */
 .btn {

@@ -109,7 +109,7 @@
 :root[data-theme^="pop"] .card { border-width: 3px; box-shadow: 6px 6px 0 var(--ink); }
 :root[data-theme^="pop"] .card.feature { border-color: var(--ink); }
 :root[data-theme^="pop"] .modal { border-width: 3px; }
-:root[data-theme^="pop"] :is(.sidebar, .topbar) { --bw: 3px; --tb-drop: 4px; border: var(--bw) solid var(--ink); box-shadow: 4px 4px 0 var(--ink); }
+:root[data-theme^="pop"] :is(.sidebar, .topbar) { --bw: 3px; border: var(--bw) solid var(--ink); box-shadow: 4px 4px 0 var(--ink); }
 /* Login and Security style bare inputs and buttons rather than .input/.btn.
    :where() keeps the #app check from adding ID-level specificity. */
 :root[data-theme^="pop"] :is(.input, .select, .card:not(:where(#app *)) input:not([type=checkbox])) { border: 2px solid var(--ink); }
