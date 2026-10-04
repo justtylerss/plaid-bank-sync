@@ -515,6 +515,19 @@ tr:hover .row-actions, .row-actions:focus-within { opacity: 1; }
 .budget-row.head { font-size: 12px; color: var(--muted); padding-top: 4px; padding-bottom: 8px; }
 .budget-row .input { height: 32px; text-align: right; font-variant-numeric: tabular-nums; }
 .budget-row .status { font-size: 12.5px; text-align: right; font-variant-numeric: tabular-nums; }
+/* Budget plan: total input, then two stacked bars on one scale with a line
+   at the total. Segments sit 2px apart so neighbouring colours never merge. */
+.plan-set { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px 20px; }
+.plan { position: relative; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 10px 14px; align-items: center; margin-top: 20px; }
+/* Explicit rows and columns: the total line shares the bars' cells, and only
+   explicitly placed items may overlap. */
+.plan-k { grid-column: 1; font-size: 12.5px; font-weight: 600; color: var(--text-2); }
+.plan-bar { grid-column: 2; display: flex; gap: 2px; height: 16px; border-radius: 4px; overflow: hidden; background: var(--surface-2); }
+.plan-bar i { display: block; flex: none; height: 100%; background: var(--dot); }
+.plan-bar i.nb, .legend i.nb { background: repeating-linear-gradient(45deg, var(--muted) 0 2px, transparent 2px 5px); }
+.plan-total { grid-column: 2; grid-row: 1 / 3; align-self: stretch; position: relative; pointer-events: none; }
+.plan-total span { position: absolute; top: -5px; bottom: -5px; width: 2px; margin-left: -1px; background: var(--text); border-radius: 1px; }
+.plan-lines { display: grid; gap: 4px; margin-top: 12px; font-size: 13px; color: var(--text-2); }
 .budget-meta { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); margin-top: 5px; }
 
 /* ============ Payment cards ============ */
@@ -1675,6 +1688,7 @@ function defaultState() {
     createdAt: new Date().toISOString(),
     settings: {
       currency: 'USD', idleHideMin: 0, hiddenViews: [], taxPct: 25, incomeDefault: 'Trading payouts', lastBackupAt: null, lastPm: '',
+      budgetTotal: 0,   // cents; the most all category budgets together may add up to. 0 = no cap.
       mileageRates: [
         { id: uid(), from: '2025-01-01', rate: 70 },
         { id: uid(), from: '2026-01-01', rate: 72.5 },
@@ -4214,6 +4228,78 @@ function exportTxCSV(list, name) {
 /* =========================================================
    Budgets
    ========================================================= */
+/* ---------- Budget plan ----------
+   A total monthly budget caps the category budgets: together they can add
+   up to it and no more. How much room is left for one category is the total
+   minus every other category's budget. */
+function budgetRoom(total, cats, c) {
+  if (!total) return Infinity;
+  return Math.max(0, total - sum(cats.filter((x) => x !== c), (x) => x.budget || 0));
+}
+/* The categories the plan chart draws, biggest budget first. Past seven,
+   colours stop telling categories apart, so the tail folds into one "Other". */
+function budgetSegments(cats, max = 6) {
+  const items = cats.filter((c) => c.budget > 0).sort((a, b) => b.budget - a.budget).map((c) => ({ c, cats: [c] }));
+  if (items.length <= max + 1) return items;
+  const rest = items.slice(max).map((s) => s.c);
+  return [...items.slice(0, max), { c: null, cats: rest }];
+}
+/* The chart: two stacked bars on one scale. Planned splits the total budget
+   by category, with whatever is unassigned left as empty track; Spent shows
+   what has actually gone, in the same colours and order, plus spending in
+   categories without a budget. A line marks the total across both, so plan
+   and reality read against the same limit. Part-to-whole of more than a
+   handful of categories reads better as a stacked bar than as a pie. */
+function budgetPlanHTML(mk, cats, sp, tot) {
+  const total = S.settings.budgetTotal || 0;
+  const segs = budgetSegments(cats);
+  const planned = (s) => sum(s.cats, (c) => c.budget);
+  const spent = (s) => sum(s.cats, (c) => sp.get(c.id) || 0);
+  const allocated = sum(segs, planned);
+  const notBudgeted = Math.max(0, tot.expense - sum(segs, spent));
+  const scale = Math.max(total, allocated, tot.expense, 1);
+  const w = (v) => (v / scale * 100).toFixed(2) + '%';
+  const color = (s) => (s.c ? colorVar(s.c.color) : 'var(--muted)');
+  const name = (s) => (s.c ? s.c.name : `Other (${s.cats.length} categories)`);
+  const bar = (row, fn, extra = '') => `<div class="plan-bar" style="grid-row:${row}">${segs.map((s) => { const v = fn(s); return v > 0 ? `<i style="width:${w(v)};--dot:${color(s)}"${tipAttr(name(s), [tipRow('Budget', money(planned(s))), tipRow('Spent', money(spent(s))), ...(total ? [tipRow('Share of total', pct(planned(s) / total))] : [])])}></i>` : ''; }).join('')}${extra}</div>`;
+  const nbSeg = notBudgeted > 0 ? `<i class="nb" style="width:${w(notBudgeted)}"${tipAttr('Not budgeted', [tipRow('Spent', money(notBudgeted))])}></i>` : '';
+
+  const left = total - tot.expense;
+  const plannedLine = !total ? `${amt(allocated)} across category budgets · no total set`
+    : allocated > total ? `<span class="neg">${icon('alert')} Category budgets add up to <span class="amt">${esc(money(allocated))}</span>, <span class="amt">${esc(money(allocated - total))}</span> over your total. Lower some below.</span>`
+    : `${amt(allocated)} of ${amt(total)} planned · <b class="amt">${esc(money(total - allocated))}</b> unallocated`;
+  const spentLine = !total ? `${amt(tot.expense)} spent this month`
+    : left >= 0 ? `${amt(tot.expense)} spent · <b class="amt">${esc(money(left))}</b> left of your total`
+    : `<span class="neg">${icon('alert')} ${amt(tot.expense)} spent, <span class="amt">${esc(money(-left))}</span> over your total</span>`;
+
+  // Starting points for the total, from the income before this month.
+  const prevMk = addMonths(mk, -1);
+  const prevIncome = monthTotals(prevMk).income;
+  const avgIncome = Math.round(sum([1, 2, 3], (i) => monthTotals(addMonths(mk, -i)).income) / 3);
+  const down10 = (c) => Math.floor(c / 1000) * 1000;   // whole $10s, rounded down
+  const picks = [
+    ...(prevIncome > 0 ? [[1, '100%'], [0.9, '90%'], [0.8, '80%']].map(([f, l]) => [`${l} · ${money(down10(prevIncome * f), { whole: true })}`, down10(prevIncome * f)]) : []),
+    ...(avgIncome > 0 ? [[`3-month average · ${money(down10(avgIncome), { whole: true })}`, down10(avgIncome)]] : []),
+  ];
+  const pickRow = picks.length
+    ? `<span class="small muted">From ${esc(monthLabel(prevMk, 'short'))}'s income of <span class="amt">${esc(money(prevIncome, { whole: true }))}</span>:</span>${picks.map(([l, v]) => `<button class="chip linkish" data-act="budget-total-pick" data-v="${v}">${esc(l)}</button>`).join('')}`
+    : '<span class="small muted">Log some income and this offers totals based on it.</span>';
+
+  const body = `<div class="plan-set">
+      <label class="field" style="width:170px"><span class="label">Total monthly budget</span><div class="input-wrap"><span class="prefix">$</span><input class="input" data-change="budget-total" inputmode="decimal" value="${total ? (total / 100).toFixed(0) : ''}" placeholder="No cap" aria-label="Total monthly budget"></div></label>
+      <div class="row wrap" style="gap:8px">${pickRow}</div>
+    </div>
+    ${segs.length || tot.expense ? `<div class="plan">
+      <span class="plan-k" style="grid-row:1">Planned</span>${bar(1, planned)}
+      <span class="plan-k" style="grid-row:2">Spent</span>${bar(2, spent, nbSeg)}
+      ${total ? `<div class="plan-total" aria-hidden="true"><span style="left:${w(total)}"></span></div>` : ''}
+    </div>
+    <div class="plan-lines"><div>${plannedLine}</div><div>${spentLine}</div></div>
+    <div class="legend" style="margin:14px 0 0">${segs.map((s) => `<span><i style="--dot:${color(s)}"></i>${esc(name(s))} <b class="amt">${esc(money(planned(s), { whole: true }))}</b></span>`).join('')}${notBudgeted > 0 ? `<span><i class="nb"></i>Not budgeted <b class="amt">${esc(money(notBudgeted, { whole: true }))}</b></span>` : ''}${total ? '<span><i class="line" style="--dot:var(--text)"></i>Your total</span>' : ''}</div>`
+    : '<p class="muted" style="margin-top:14px">Give a category a budget below and the plan appears here.</p>'}`;
+  return UI.card('Monthly plan', body, { sub: total ? 'Category budgets can add up to this total and no more.' : 'Set a total and category budgets are capped to fit inside it.' });
+}
+
 VIEWS.budgets = {
   title: 'Budgets', month: true,
   render() {
@@ -4245,13 +4331,14 @@ VIEWS.budgets = {
       </div>`;
     };
     return `<div class="stats">
-      ${UI.stat('Budgeted', amt(budgeted), { sub: tot.income ? `${pct(budgeted / tot.income)} of this month's income` : 'Set budgets below' })}
+      ${UI.stat('Budgeted', amt(budgeted), { sub: S.settings.budgetTotal ? `of your <span class="amt">${esc(money(S.settings.budgetTotal, { whole: true }))}</span> total` : tot.income ? `${pct(budgeted / tot.income)} of this month's income` : 'Set budgets below' })}
       ${UI.stat('Spent in budgets', amt(spentIn), { sub: budgeted ? `${pct(spentIn / budgeted)} used` : '' })}
       ${UI.stat(left >= 0 ? 'Left to spend' : 'Over budget', amt(Math.abs(left), {}, left < 0 ? 'neg' : ''), { sub: daysLeft && left > 0 ? `≈ <span class="amt">${esc(money(Math.floor(left / daysLeft)))}</span>/day for ${daysLeft} days` : '' })}
       ${UI.stat('Unbudgeted spending', amt(unbudgeted), { sub: 'Categories without a budget' })}
     </div>
-    <section class="card flush">
-      <header class="card-h" style="padding:16px 18px 6px"><div><h3>Monthly budgets</h3><p class="card-sub">Budgets repeat every month. ${isCur ? 'The thin line shows an even spending pace for today.' : ''}</p></div><div class="card-actions"><button class="btn sm" data-act="budget-suggest">${icon('zap')}Suggest from last 3 months</button><button class="btn sm ghost" data-act="cat-add" data-kind="expense">${icon('plus')}Category</button></div></header>
+    ${budgetPlanHTML(mk, cats, sp, tot)}
+    <section class="card flush" style="margin-top:16px">
+      <header class="card-h" style="padding:16px 18px 6px"><div><h3>Monthly budgets</h3><p class="card-sub">Budgets repeat every month. ${isCur ? 'The thin line shows an even spending pace for today.' : ''}</p></div><div class="card-actions"><button class="btn sm" data-act="budget-suggest">${icon('zap')}Suggest from last month</button><button class="btn sm ghost" data-act="cat-add" data-kind="expense">${icon('plus')}Category</button></div></header>
       <div class="budget-row head"><span>Category</span><span>Monthly budget</span><span class="hide-md">Progress</span><span style="text-align:right">Status</span></div>
       ${rows.map(row).join('')}
     </section>`;
@@ -4260,7 +4347,12 @@ VIEWS.budgets = {
 CHG['budget-set'] = (el) => {
   const c = catOf(el.dataset.id); if (!c) return;
   const v = parseMoney(el.value || '0');
-  c.budget = isNaN(v) ? 0 : Math.max(0, v);
+  let want = isNaN(v) ? 0 : Math.max(0, v);
+  // The total is the cap: a category can only take what is still unallocated.
+  const total = S.settings.budgetTotal || 0;
+  const room = budgetRoom(total, catsOfKind('expense'), c);
+  if (want > room) { want = room; toast(`Capped at ${money(room)}. The rest of your ${money(total)} total is already budgeted to other categories.`); }
+  c.budget = want;
   Cloud.save(S);
   setTimeout(() => {
     const a = document.activeElement; const fid = a && a.dataset ? a.dataset.id : null;
@@ -4268,14 +4360,29 @@ CHG['budget-set'] = (el) => {
     if (fid) { const n = document.querySelector(`[data-change="budget-set"][data-id="${fid}"]`); if (n) n.focus(); }
   }, 0);
 };
+CHG['budget-total'] = (el) => {
+  const v = parseMoney(el.value || '0');
+  commit(() => { S.settings.budgetTotal = isNaN(v) ? 0 : Math.max(0, v); }, isNaN(v) || v <= 0 ? 'Total removed: category budgets are no longer capped' : `Total budget set to ${money(v)}`);
+};
+ACT['budget-total-pick'] = (el) => {
+  const v = Number(el.dataset.v) || 0;
+  commit(() => { S.settings.budgetTotal = v; }, `Total budget set to ${money(v)}`);
+};
+/* Budgets from what each category actually cost the month before the one
+   on screen, the same month the total's income picks come from. One month
+   is plainer to reason about than an average, and does not shortchange a
+   category that only started recently. */
 ACT['budget-suggest'] = async () => {
-  const sugg = catsOfKind('expense').map((c) => {
-    let tot = 0; for (let i = 1; i <= 3; i++) tot += spendByCat(addMonths(curMonth(), -i)).get(c.id) || 0;
-    return { c, v: Math.ceil(tot / 3 / 1000) * 1000 };
-  }).filter((x) => x.v > 0);
-  if (!sugg.length) { toast('Not enough history yet: log a few months first'); return; }
-  const ok = await confirmDialog({ title: 'Suggest budgets?', message: `Sets ${plural(sugg.length, 'category', 'categories')} to your 3-month average, rounded up to the nearest $10. Categories with no spending keep their current budget.`, confirmText: 'Apply', danger: false });
-  if (ok) commit(() => sugg.forEach(({ c, v }) => { c.budget = v; }), 'Budgets updated');
+  const prev = addMonths(ui.month, -1);
+  const spent = spendByCat(prev);
+  const sugg = catsOfKind('expense').map((c) => ({ c, v: Math.ceil((spent.get(c.id) || 0) / 1000) * 1000 })).filter((x) => x.v > 0);
+  if (!sugg.length) { toast(`Nothing was spent in ${monthLabel(prev)} to base budgets on`); return; }
+  const ok = await confirmDialog({ title: 'Suggest budgets?', message: `Sets ${plural(sugg.length, 'category', 'categories')} to what you spent on each in ${esc(monthLabel(prev))}, rounded up to the nearest $10. Categories with no spending that month keep their current budget.`, confirmText: 'Apply', danger: false });
+  if (!ok) return;
+  commit(() => sugg.forEach(({ c, v }) => { c.budget = v; }), 'Budgets updated');
+  // Suggestions follow past spending, not the cap, so say when they overshoot it.
+  const total = S.settings.budgetTotal || 0, now = sum(catsOfKind('expense'), (c) => c.budget);
+  if (total && now > total) toast(`These add up to ${money(now)}, ${money(now - total)} over your total. Lower some categories, or raise the total.`, 'err');
 };
 
 /* =========================================================
@@ -4523,6 +4630,8 @@ const CHANGELOG = [
   {
     date: 'Oct 3, 2026',
     items: [
+      'Budgets has a monthly plan: set a total budget, or pick one from last month’s income (100%, 90% or 80%, or the 3-month average), and category budgets are capped to fit inside it. A chart shows how the total is split across categories against what you have actually spent, with a line at the total.',
+      '“Suggest from last 3 months” is now “Suggest from last month”: each category’s budget is set to what you spent on it the month before, rounded up to the nearest $10.',
       'Bank Sync now lives inside the Ledger, under Bank Sync in the sidebar, instead of being a separate page. Moving between it and the rest of the Ledger slides sideways, in every browser that supports view transitions, Firefox included. The old address still works and brings you here.',
       'Six loud Pop themes under Settings → Theme: Lime, Sunset, Mint, Grape, Newsprint and Night arcade. Thick outlines, hard shadows and springy motion; the Animation setting still turns the motion off.',
       'CSV import reads more banks correctly: Bank of America files with a summary above the data, Wells Fargo files with no header row, Chase checking’s extra Details column, and card exports (Amex, Discover) where purchases are positive numbers. Amounts like +12.00 are understood too.',

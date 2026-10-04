@@ -114,7 +114,7 @@
    :where() keeps the #app check from adding ID-level specificity. */
 :root[data-theme^="pop"] :is(.input, .select, .card:not(:where(#app *)) input:not([type=checkbox])) { border: 2px solid var(--ink); }
 :root[data-theme^="pop"] :is(.input, .select, .card:not(:where(#app *)) input:not([type=checkbox])):focus { border-color: var(--accent); box-shadow: 3px 3px 0 var(--ink); }
-:root[data-theme^="pop"] .progress { outline: 2px solid var(--ink); }
+:root[data-theme^="pop"] :is(.progress, .plan-bar) { outline: 2px solid var(--ink); }
 :root[data-theme^="pop"] .pm-card { border: 3px solid var(--ink); box-shadow: 6px 6px 0 var(--ink); }
 :root[data-theme^="pop"] .pm-card:hover { transform: translate(-3px, -3px) rotate(-1deg); box-shadow: 9px 9px 0 var(--ink); }
 
