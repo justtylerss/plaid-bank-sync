@@ -103,8 +103,7 @@
 :root[data-theme^="pop"] .card { border-width: 3px; box-shadow: 6px 6px 0 var(--ink); }
 :root[data-theme^="pop"] .card.feature { border-color: var(--ink); }
 :root[data-theme^="pop"] .modal { border-width: 3px; }
-:root[data-theme^="pop"] .sidebar { border-right: 3px solid var(--ink); }
-:root[data-theme^="pop"] .topbar { border-bottom: 3px solid var(--ink); }
+:root[data-theme^="pop"] :is(.sidebar, .topbar) { border: 3px solid var(--ink); box-shadow: 4px 4px 0 var(--ink); }
 /* Login and Security style bare inputs and buttons rather than .input/.btn.
    :where() keeps the #app check from adding ID-level specificity. */
 :root[data-theme^="pop"] :is(.input, .select, .card:not(:where(#app *)) input:not([type=checkbox])) { border: 2px solid var(--ink); }
@@ -182,7 +181,7 @@
 }
 :root[data-theme="glass"] .card.feature { border-color: rgba(255,255,255,.35); }
 :root[data-theme="glass"] .sidebar {
-  background: rgba(255,255,255,.4); border-right-color: rgba(255,255,255,.6);
+  background: rgba(255,255,255,.4); border-color: rgba(255,255,255,.6);
   backdrop-filter: blur(30px) saturate(1.6); -webkit-backdrop-filter: blur(30px) saturate(1.6);
 }
 :root[data-theme="glass"] .topbar { background: rgba(255,255,255,.3); backdrop-filter: blur(30px) saturate(1.6); -webkit-backdrop-filter: blur(30px) saturate(1.6); }
