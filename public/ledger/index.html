@@ -4297,7 +4297,7 @@ function budgetPlanHTML(mk, cats, sp, tot) {
     <div class="plan-lines"><div>${plannedLine}</div><div>${spentLine}</div></div>
     <div class="legend" style="margin:14px 0 0">${segs.map((s) => `<span><i style="--dot:${color(s)}"></i>${esc(name(s))} <b class="amt">${esc(money(planned(s), { whole: true }))}</b></span>`).join('')}${notBudgeted > 0 ? `<span><i class="nb"></i>Not budgeted <b class="amt">${esc(money(notBudgeted, { whole: true }))}</b></span>` : ''}${total ? '<span><i class="line" style="--dot:var(--text)"></i>Your total</span>' : ''}</div>`
     : '<p class="muted" style="margin-top:14px">Give a category a budget below and the plan appears here.</p>'}`;
-  return UI.card('Monthly plan', body, { sub: total ? 'Category budgets can add up to this total and no more.' : 'Set a total and category budgets are capped to fit inside it.', actions: `<button class="btn sm" data-act="budget-suggest">${icon('zap')}Suggest from last month</button>` });
+  return UI.card('Monthly plan', body, { sub: total ? 'Category budgets can add up to this total and no more.' : 'Set a total and category budgets are capped to fit inside it.' });
 }
 
 VIEWS.budgets = {
